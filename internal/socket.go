@@ -1,56 +1,77 @@
 package internal
 
 import (
-	"fmt"
+	"log"
 	"syscall"
 )
 
-// type resp for test
-const resp = "HTTP/1.1 200 OK\r\n" +
-	"Content-Length: 12\r\n" +
-	"Content-Type: text/plain\r\n" +
-	"\r\n" +
-	"Hello World!"
+const (
+	backlog = 16         // backlog for listening
+	EPOLLET = 0x80000000 // uint32 const for | compability (because 8... in bytes is too large for explicit conversion)
+)
 
-func Test(ip [4]byte, port int) {
+// create new socket, bind and start listening
+func listenSocket(addr [4]byte, port int) (int, error) {
 	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, 0)
 	if err != nil {
-		fmt.Print(err)
-		return
+		return -1, err
+	}
+
+	if err := syscall.Bind(fd, &syscall.SockaddrInet4{
+		Port: port,
+		Addr: addr,
+	}); err != nil {
+		return -1, err
+	}
+	if err := syscall.Listen(fd, backlog); err != nil {
+		return -1, err
+	}
+
+	log.Printf("new socket started on %d:%d, fd = %d", addr, port, fd)
+	return fd, nil
+}
+
+// create new epoll
+func EpollRecv(addr [4]byte, port int) error {
+	fd, err := listenSocket(addr, port)
+	if err != nil {
+		return err
 	}
 	defer syscall.Close(fd)
 
-	sa := &syscall.SockaddrInet4{
-		Port: port,
-		Addr: ip,
-	}
-	if err := syscall.Bind(fd, sa); err != nil {
-		fmt.Println(err)
-	}
+	epollfd, _ := syscall.EpollCreate1(0) // creating new epoll object
+	syscall.EpollCtl(epollfd, syscall.EPOLL_CTL_ADD, fd, &syscall.EpollEvent{
+		Events: syscall.EPOLLIN,
+		Fd:     int32(fd),
+	}) // adding event w peer socket descriptor
 
-	fmt.Printf("Socket bound into: %d:%d, (fd = %d)\n", ip, port, fd)
+	jobs := make(chan int, 1024)
+	startWorkerPool(jobs, epollfd)
 
-	err = syscall.Listen(fd, 5)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
+	events := make([]syscall.EpollEvent, 64)
 	for {
-		nfd, _, err := syscall.Accept(fd)
+		// number of events to accept
+		n, err := syscall.EpollWait(epollfd, events, -1)
 		if err != nil {
-			fmt.Print(err)
-			return
+			continue
 		}
-		go func(fd int) {
-			defer syscall.Close(fd)
 
-			syscall.Write(fd, []byte(resp))
+		for i := range n {
+			efd := int(events[i].Fd) // current event descriptor
 
-			rb := make([]byte, 1024)
-			n, _ := syscall.Read(fd, rb)
+			if efd == fd {
+				nfd, _, _ := syscall.Accept(fd) // new descriptor for new client
+				syscall.SetNonblock(nfd, true)
 
-			fmt.Printf("received %d bytes: %d\n%s", n, fd, rb[:n])
-		}(nfd)
+				syscall.EpollCtl(epollfd, syscall.EPOLL_CTL_ADD, nfd, // adding new descriptor to epoll
+					&syscall.EpollEvent{
+						Events: EPOLLET | uint32(syscall.EPOLLONESHOT) | uint32(syscall.EPOLLIN),
+						Fd:     int32(nfd),
+					})
+				log.Printf("new client connected: %d\n", nfd)
+			} else {
+				jobs <- efd
+			}
+		}
 	}
 }
