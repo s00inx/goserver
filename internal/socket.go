@@ -41,7 +41,7 @@ func EpollRecv(addr [4]byte, port int) error {
 
 	epollfd, _ := syscall.EpollCreate1(0) // creating new epoll object
 	syscall.EpollCtl(epollfd, syscall.EPOLL_CTL_ADD, fd, &syscall.EpollEvent{
-		Events: syscall.EPOLLIN,
+		Events: syscall.EPOLLIN | syscall.EPOLLONESHOT,
 		Fd:     int32(fd),
 	}) // adding event w peer socket descriptor
 
@@ -65,7 +65,7 @@ func EpollRecv(addr [4]byte, port int) error {
 
 				syscall.EpollCtl(epollfd, syscall.EPOLL_CTL_ADD, nfd, // adding new descriptor to epoll
 					&syscall.EpollEvent{
-						Events: EPOLLET | uint32(syscall.EPOLLONESHOT) | uint32(syscall.EPOLLIN),
+						Events: syscall.EPOLLONESHOT | syscall.EPOLLIN,
 						Fd:     int32(nfd),
 					})
 				log.Printf("new client connected: %d\n", nfd)
