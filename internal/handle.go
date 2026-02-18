@@ -14,13 +14,19 @@ const (
 )
 
 // session for LT epoll
-// buf, offset for raw data, request
+// buf, offset for raw data
 type session struct {
 	buf    []byte
 	offset int
 
 	hbuf [64]header
 	req  request
+}
+
+// reset session for put it to pool
+func (s *session) reset() {
+	s.req = request{}
+	s.offset = 0
 }
 
 // pool for sessions
@@ -37,6 +43,7 @@ func handle(epollfd int, jobs chan int, sessions []atomic.Pointer[session]) {
 		if s == nil {
 			// get new session from pool
 			newsession := sessionPool.Get().(*session)
+			newsession.reset()
 
 			sessions[fd].Store(newsession) // atomically make new session
 			s = newsession
@@ -51,11 +58,10 @@ func handle(epollfd int, jobs chan int, sessions []atomic.Pointer[session]) {
 					syscall.Write(fd, []byte("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK"))
 
 					rem := s.offset - cons
-					s.offset = rem
-
 					if rem > 0 {
 						copy(s.buf, s.buf[cons:s.offset])
 					}
+					s.offset = rem
 
 					if s.offset == 0 {
 						break
@@ -74,8 +80,7 @@ func handle(epollfd int, jobs chan int, sessions []atomic.Pointer[session]) {
 			sessions[fd].Store(nil) // atomically zeroing our ptr to session
 
 			// clearing session before put it to pool
-			s.req = request{}
-			s.offset = 0
+			s.reset()
 
 			sessionPool.Put(s)
 			syscall.Close(fd) // closing socket AFTER putting it to pool
@@ -92,12 +97,12 @@ func handle(epollfd int, jobs chan int, sessions []atomic.Pointer[session]) {
 
 // start simple worker pool for handling a request
 func startWorkerPool(jobs chan int, epollfd int) {
+	// get r limit (means max count of descriptors)
 	rlim := syscall.Rlimit{}
 	syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rlim)
 
 	sessions := make([]atomic.Pointer[session], rlim.Max)
 	// i use atomic pointer here bc i need atomic access to ptr
-	// now limit is 2^16-1 so that means that only 65535 descriptors could be processed by my worker pool
 
 	numWorkers := runtime.NumCPU()
 	for range numWorkers {

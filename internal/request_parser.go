@@ -5,6 +5,7 @@ import (
 	"errors"
 )
 
+// request struct for parsing
 type request struct {
 	method   []byte
 	path     []byte
@@ -14,11 +15,13 @@ type request struct {
 	body    []byte
 }
 
+// header
 type header struct {
 	key, val []byte
 }
 
 var (
+	// available request methods
 	availablem = [][]byte{
 		[]byte("GET"),
 		[]byte("POST"),
@@ -26,12 +29,13 @@ var (
 		[]byte("PATCH"),
 		[]byte("DELETE"),
 	}
+	// errors for parsing
 	errInvalid    = errors.New("invalid request")
 	errIncomplete = errors.New("incomplete request")
 )
 
 // parse raw bytes to request struct from session w zero-alloc
-// input raw data bytes, buffer for headers (for 0 alloc), request ptr from session struct
+// input raw data bytes, buffer for headers, request ptr from session struct
 func parseraw(raw []byte, hbuf []header, req *request) (int, error) {
 	*req = request{}
 	crs := 0
@@ -91,15 +95,18 @@ func parseraw(raw []byte, hbuf []header, req *request) (int, error) {
 	var contentlen int
 	clh := []byte("Content-Length")
 	for {
+		// check if we are out of bounds
 		if crs+1 >= len(raw) {
 			return 0, errIncomplete
 		}
 
+		// CRLF means that headers is over
 		if raw[crs] == '\r' && raw[crs+1] == '\n' {
 			crs += 2
 			break
 		}
 
+		// header parsing process
 		lf := findsep(crs, '\n')
 		if lf == -1 {
 			return 0, errIncomplete
@@ -122,10 +129,13 @@ func parseraw(raw []byte, hbuf []header, req *request) (int, error) {
 		key := raw[crs:coloni]
 		val := raw[vals:le]
 
+		// max header count is 64 so we need to check overflow
 		if len(req.headers) < cap(hbuf) {
 			req.headers = append(req.headers, header{key, val})
 		}
 
+		// find content-length header for body
+		// note: no Content-Lentgth means req has NO body
 		if len(key) == 14 && bytes.EqualFold(clh, key) {
 			for _, c := range val {
 				if c >= '0' && c <= '9' {
@@ -137,6 +147,7 @@ func parseraw(raw []byte, hbuf []header, req *request) (int, error) {
 		crs = lf + 1
 	}
 
+	// parsing body
 	if contentlen > 0 {
 		if crs+contentlen > len(raw) {
 			return 0, errIncomplete

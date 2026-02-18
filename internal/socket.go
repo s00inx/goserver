@@ -5,23 +5,24 @@ import (
 )
 
 const (
-	backlog = 16 // backlog for listening
+	backlog   = 16 // backlog for listening
+	maxEvents = 128
 )
 
 // create new socket, bind and start listening
 func listenSocket(addr [4]byte, port int) (int, error) {
-	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, 0)
+	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, 0) // make new stream socket (this means tcp)
 	if err != nil {
 		return -1, err
 	}
 
-	if err := syscall.Bind(fd, &syscall.SockaddrInet4{
+	if err := syscall.Bind(fd, &syscall.SockaddrInet4{ // bind socket to addr:port
 		Port: port,
 		Addr: addr,
 	}); err != nil {
 		return -1, err
 	}
-	if err := syscall.Listen(fd, backlog); err != nil {
+	if err := syscall.Listen(fd, backlog); err != nil { // start listening on addr:port
 		return -1, err
 	}
 
@@ -29,7 +30,7 @@ func listenSocket(addr [4]byte, port int) (int, error) {
 	return fd, nil
 }
 
-// create new epoll
+// starting our server
 func EpollRecv(addr [4]byte, port int) error {
 	fd, err := listenSocket(addr, port)
 	if err != nil {
@@ -46,7 +47,7 @@ func EpollRecv(addr [4]byte, port int) error {
 	jobs := make(chan int, 1024)
 	startWorkerPool(jobs, epollfd)
 
-	events := make([]syscall.EpollEvent, 64)
+	events := make([]syscall.EpollEvent, maxEvents)
 	for {
 		// number of events to accept
 		n, err := syscall.EpollWait(epollfd, events, -1)
