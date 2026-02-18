@@ -1,13 +1,11 @@
 package internal
 
 import (
-	"log"
 	"syscall"
 )
 
 const (
-	backlog = 16         // backlog for listening
-	EPOLLET = 0x80000000 // uint32 const for | compability (because 8... in bytes is too large for explicit conversion)
+	backlog = 16 // backlog for listening
 )
 
 // create new socket, bind and start listening
@@ -27,7 +25,7 @@ func listenSocket(addr [4]byte, port int) (int, error) {
 		return -1, err
 	}
 
-	log.Printf("new socket started on %d:%d, fd = %d", addr, port, fd)
+	// log.Printf("new socket started on %d:%d, fd = %d", addr, port, fd)
 	return fd, nil
 }
 
@@ -41,7 +39,7 @@ func EpollRecv(addr [4]byte, port int) error {
 
 	epollfd, _ := syscall.EpollCreate1(0) // creating new epoll object
 	syscall.EpollCtl(epollfd, syscall.EPOLL_CTL_ADD, fd, &syscall.EpollEvent{
-		Events: syscall.EPOLLIN | syscall.EPOLLONESHOT,
+		Events: syscall.EPOLLIN,
 		Fd:     int32(fd),
 	}) // adding event w peer socket descriptor
 
@@ -65,10 +63,10 @@ func EpollRecv(addr [4]byte, port int) error {
 
 				syscall.EpollCtl(epollfd, syscall.EPOLL_CTL_ADD, nfd, // adding new descriptor to epoll
 					&syscall.EpollEvent{
-						Events: syscall.EPOLLONESHOT | syscall.EPOLLIN,
+						Events: syscall.EPOLLIN | syscall.EPOLLONESHOT,
 						Fd:     int32(nfd),
 					})
-				log.Printf("new client connected: %d\n", nfd)
+				// log.Printf("new client connected: %d\n", nfd)
 			} else {
 				jobs <- efd
 			}

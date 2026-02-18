@@ -1,56 +1,84 @@
 package internal
 
+// TODO: error handling (!)
 import (
-	"bytes"
+	"errors"
 	"runtime"
+	"sync"
+	"sync/atomic"
 	"syscall"
 )
 
+const (
+	maxRequestSize = 1<<16 - 1
+)
+
 // session for LT epoll
-// buf, offset for raw data, request for 0 alloc
+// buf, offset for raw data, request
 type session struct {
 	buf    []byte
 	offset int
 
-	req request
+	hbuf [64]header
+	req  request
 }
 
-// req bytes -> resp bytes logic (for testing)
-func processConn(raw []byte, req *request) ([]byte, error) {
-	buf := make([]header, 0, 4096) // should use pool
-
-	_, err := parseRequest(raw, buf, req)
-	if err != nil {
-		return nil, err
-	}
-
-	return []byte("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK"), nil
+// pool for sessions
+var sessionPool = sync.Pool{
+	New: func() any {
+		return &session{buf: make([]byte, maxRequestSize)}
+	},
 }
 
-// handle request (descriptor -> parser -> router -> handler -> write to fd n close it )
-func handle(epollfd int, jobs chan int, sessions []*session) {
+// handle request (descriptor -> parser -> router -> handler -> write to fd and close it)
+func handle(epollfd int, jobs chan int, sessions []atomic.Pointer[session]) {
 	for fd := range jobs {
-		s := sessions[fd]
+		s := sessions[fd].Load() // load pointer atomically so we don't get invalid ptr
 		if s == nil {
-			s = &session{buf: make([]byte, 8192)}
-			sessions[fd] = s
+			// get new session from pool
+			newsession := sessionPool.Get().(*session)
+
+			sessions[fd].Store(newsession) // atomically make new session
+			s = newsession
 		}
 
 		n, err := syscall.Read(fd, s.buf[s.offset:])
 		if n > 0 {
 			s.offset += n
+			for {
+				cons, parserr := parseraw(s.buf[:s.offset], s.hbuf[:], &s.req)
+				if parserr == nil {
+					syscall.Write(fd, []byte("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK"))
 
-			if bytes.Contains(s.buf[:s.offset], []byte("\r\n\r\n")) {
-				resp, _ := processConn(s.buf[:s.offset], &s.req)
-				syscall.Write(fd, resp)
+					rem := s.offset - cons
+					s.offset = rem
 
-				s.offset = 0
+					if rem > 0 {
+						copy(s.buf, s.buf[cons:s.offset])
+					}
+
+					if s.offset == 0 {
+						break
+					}
+					continue
+				} else if errors.Is(parserr, errIncomplete) {
+					break
+				} else {
+					err = parserr
+					break
+				}
 			}
 		}
 
-		if (err != nil && err != syscall.EAGAIN) || n == 0 {
-			syscall.Close(fd)
-			sessions[fd] = nil
+		if (err != nil && err != syscall.EAGAIN) || n == 0 || s.offset > maxRequestSize {
+			sessions[fd].Store(nil) // atomically zeroing our ptr to session
+
+			// clearing session before put it to pool
+			s.req = request{}
+			s.offset = 0
+
+			sessionPool.Put(s)
+			syscall.Close(fd) // closing socket AFTER putting it to pool
 			continue
 		}
 
@@ -64,8 +92,14 @@ func handle(epollfd int, jobs chan int, sessions []*session) {
 
 // start simple worker pool for handling a request
 func startWorkerPool(jobs chan int, epollfd int) {
+	rlim := syscall.Rlimit{}
+	syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rlim)
+
+	sessions := make([]atomic.Pointer[session], rlim.Max)
+	// i use atomic pointer here bc i need atomic access to ptr
+	// now limit is 2^16-1 so that means that only 65535 descriptors could be processed by my worker pool
+
 	numWorkers := runtime.NumCPU()
-	sessions := make([]*session, 1<<16-1)
 	for range numWorkers {
 		go handle(epollfd, jobs, sessions)
 	}
