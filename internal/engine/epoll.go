@@ -22,7 +22,7 @@ func StartEpoll(addr [4]byte, port int, p httpParser) error {
 	defer syscall.Close(fd)
 
 	// creating new epoll instance
-	epollfd, _ := syscall.EpollCreate(0)
+	epollfd, _ := syscall.EpollCreate1(0)
 
 	// register listening soket to epoll
 	syscall.EpollCtl(epollfd, syscall.EPOLL_CTL_ADD, fd, &syscall.EpollEvent{

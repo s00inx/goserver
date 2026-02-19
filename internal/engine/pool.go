@@ -75,7 +75,6 @@ func workerEpoll(epollfd int, jobs chan int, Sessions []atomic.Pointer[Session],
 		n, err := syscall.Read(fd, s.Buf[s.Offset:])
 		if n > 0 {
 			s.Offset += n
-
 			p.Parse(fd, s)
 		}
 
