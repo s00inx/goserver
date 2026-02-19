@@ -37,7 +37,7 @@ var sessionPool = sync.Pool{
 }
 
 // handle request (descriptor -> parser -> router -> handler -> write to fd and close it)
-func handle(epollfd int, jobs chan int, sessions []atomic.Pointer[session]) {
+func workerEpoll(epollfd int, jobs chan int, sessions []atomic.Pointer[session]) {
 	for fd := range jobs {
 		s := sessions[fd].Load() // load pointer atomically so we don't get invalid ptr
 		if s == nil {
@@ -106,6 +106,6 @@ func startWorkerPool(jobs chan int, epollfd int) {
 
 	numWorkers := runtime.NumCPU()
 	for range numWorkers {
-		go handle(epollfd, jobs, sessions)
+		go workerEpoll(epollfd, jobs, sessions)
 	}
 }
