@@ -1,24 +1,14 @@
-package internal
+// parse raw bytes to HTTP request struct w zero-alloc
+// onlu parser logic
+package protocol
 
 import (
 	"bytes"
 	"errors"
+	"syscall"
+
+	"github.com/kfcemployee/goserver/internal/engine"
 )
-
-// request struct for parsing
-type request struct {
-	method   []byte
-	path     []byte
-	protocol []byte
-
-	headers []header
-	body    []byte
-}
-
-// header
-type header struct {
-	key, val []byte
-}
 
 var (
 	// available request methods
@@ -29,17 +19,49 @@ var (
 		[]byte("PATCH"),
 		[]byte("DELETE"),
 	}
-	// errors for parsing
-	errInvalid    = errors.New("invalid request")
-	errIncomplete = errors.New("incomplete request")
 )
 
+// stateless HTTPParser struct
+// should be init in server.go
+type HTTPParser struct{}
+
 // parse raw bytes to request struct from session w zero-alloc
+func (p *HTTPParser) Parse(fd int, s *engine.Session) error {
+	var err error
+	for {
+		cons, parserr := p.parseRaw(s.Buf[:s.Offset], s.Hbuf[:], &s.Req)
+		if parserr == nil {
+			syscall.Write(fd, []byte("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK"))
+
+			rem := s.Offset - cons
+			if rem > 0 {
+				copy(s.Buf, s.Buf[cons:s.Offset])
+			}
+			s.Offset = rem
+			s.Req = engine.Request{}
+
+			if s.Offset == 0 {
+				break
+			}
+			continue
+		} else if errors.Is(parserr, errIncomplete) {
+			break
+		} else {
+			err = parserr
+			break
+		}
+	}
+
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 // input raw data bytes, buffer for headers, request ptr from session struct
-func parseraw(raw []byte, hbuf []header, req *request) (int, error) {
-	*req = request{}
+func (p *HTTPParser) parseRaw(raw []byte, hbuf []engine.Header, req *engine.Request) (int, error) {
 	crs := 0
-	req.headers = hbuf[:0]
+	req.Headers = hbuf[:0]
 
 	// find a separator
 	findsep := func(start int, sep byte) int {
@@ -55,12 +77,12 @@ func parseraw(raw []byte, hbuf []header, req *request) (int, error) {
 	if sep == -1 {
 		return 0, errIncomplete
 	}
-	req.method = raw[crs:sep]
+	req.Method = raw[crs:sep]
 
 	// check if request method is valid
 	isvalid := false
 	for _, me := range availablem {
-		if bytes.Equal(me, req.method) {
+		if bytes.Equal(me, req.Method) {
 			isvalid = true
 			break
 		}
@@ -76,7 +98,7 @@ func parseraw(raw []byte, hbuf []header, req *request) (int, error) {
 	if sep == -1 {
 		return 0, errIncomplete
 	}
-	req.path = raw[crs:sep]
+	req.Path = raw[crs:sep]
 	crs = sep + 1
 
 	// find request protocol (basically HTTP\1.1)
@@ -85,7 +107,7 @@ func parseraw(raw []byte, hbuf []header, req *request) (int, error) {
 		return 0, errIncomplete
 	}
 	if sep > crs && raw[sep-1] == '\r' {
-		req.protocol = raw[crs : sep-1]
+		req.Protocol = raw[crs : sep-1]
 		crs = sep + 1
 	} else {
 		return 0, errInvalid
@@ -130,8 +152,10 @@ func parseraw(raw []byte, hbuf []header, req *request) (int, error) {
 		val := raw[vals:le]
 
 		// max header count is 64 so we need to check overflow
-		if len(req.headers) < cap(hbuf) {
-			req.headers = append(req.headers, header{key, val})
+		if len(req.Headers) < cap(hbuf) {
+			req.Headers = append(req.Headers, engine.Header{
+				Key: key,
+				Val: val})
 		}
 
 		// find content-length header for body
@@ -152,7 +176,7 @@ func parseraw(raw []byte, hbuf []header, req *request) (int, error) {
 		if crs+contentlen > len(raw) {
 			return 0, errIncomplete
 		}
-		req.body = raw[crs : crs+contentlen]
+		req.Body = raw[crs : crs+contentlen]
 		crs += contentlen
 	}
 

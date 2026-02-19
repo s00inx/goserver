@@ -1,5 +1,6 @@
-// file with epoll settings
-package internal
+// file with epoll settings and socket creating
+// only low level epoll and socket functional
+package engine
 
 import (
 	"syscall"
@@ -10,22 +11,27 @@ const (
 	maxEvents = 128
 )
 
-// starting our server
-func EpollRecv(addr [4]byte, port int) error {
+// starting our server;
+// should be called from server.go;
+// arguments: address, port and router dependency
+func StartEpoll(addr [4]byte, port int, p httpParser) error {
 	fd, err := listenSocket(addr, port)
 	if err != nil {
 		return err
 	}
 	defer syscall.Close(fd)
 
-	epollfd, _ := syscall.EpollCreate1(0) // creating new epoll object
+	// creating new epoll instance
+	epollfd, _ := syscall.EpollCreate(0)
+
+	// register listening soket to epoll
 	syscall.EpollCtl(epollfd, syscall.EPOLL_CTL_ADD, fd, &syscall.EpollEvent{
 		Events: syscall.EPOLLIN,
 		Fd:     int32(fd),
-	}) // adding event w peer socket descriptor
+	})
 
 	jobs := make(chan int, 1024)
-	startWorkerPool(jobs, epollfd)
+	startWorkerPool(jobs, epollfd, p)
 
 	events := make([]syscall.EpollEvent, maxEvents)
 	for {
@@ -53,4 +59,26 @@ func EpollRecv(addr [4]byte, port int) error {
 			}
 		}
 	}
+}
+
+// create new socket, bind and start listening
+func listenSocket(addr [4]byte, port int) (int, error) {
+	// SOCK_STREAM = TCP
+	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, 0)
+	if err != nil {
+		return -1, err
+	}
+
+	if err := syscall.Bind(fd, &syscall.SockaddrInet4{ // bind socket to addr:port
+		Port: port,
+		Addr: addr,
+	}); err != nil {
+		return -1, err
+	}
+	if err := syscall.Listen(fd, backlog); err != nil { // start listening on addr:port
+		return -1, err
+	}
+
+	// log.Printf("new socket started on %d:%d, fd = %d", addr, port, fd)
+	return fd, nil
 }
