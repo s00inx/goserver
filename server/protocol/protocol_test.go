@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/kfcemployee/goserver/internal/engine"
+	"github.com/s00inx/goserver/server/engine"
 )
 
 func TestParser(t *testing.T) {
@@ -15,13 +15,13 @@ func TestParser(t *testing.T) {
 		name    string
 		raw     []byte
 		wantErr error
-		check   func(t *testing.T, req *engine.Request, cons int)
+		check   func(t *testing.T, req *engine.RawRequest, cons int)
 	}{
 		{
-			name:    "simple_get_request",
+			name:    "simple_get_RawRequest",
 			raw:     []byte("GET /index HTTP/1.1\r\nHost: localhost\r\n\r\n"),
 			wantErr: nil,
-			check: func(t *testing.T, req *engine.Request, cons int) {
+			check: func(t *testing.T, req *engine.RawRequest, cons int) {
 				if !bytes.Equal(req.Method, []byte("GET")) {
 					t.Errorf("wrong method: %s", req.Method)
 				}
@@ -34,14 +34,14 @@ func TestParser(t *testing.T) {
 			name:    "post_with_body",
 			raw:     []byte("POST /upload HTTP/1.1\r\nContent-Length: 4\r\n\r\ntest"),
 			wantErr: nil,
-			check: func(t *testing.T, req *engine.Request, cons int) {
+			check: func(t *testing.T, req *engine.RawRequest, cons int) {
 				if !bytes.Equal(req.Body, []byte("test")) {
 					t.Errorf("wrong body: %s", req.Body)
 				}
 			},
 		},
 		{
-			name:    "incomplete_request",
+			name:    "incomplete_RawRequest",
 			raw:     []byte("GET /partial HTT"),
 			wantErr: errIncomplete,
 		},
@@ -51,16 +51,16 @@ func TestParser(t *testing.T) {
 			wantErr: errInvalid,
 		},
 		{
-			name:    "pipelining_first_request",
+			name:    "pipelining_first_RawRequest",
 			raw:     []byte("GET /1 HTTP/1.1\r\n\r\nGET /2 HTTP/1.1\r\n\r\n"),
 			wantErr: nil,
-			check: func(t *testing.T, req *engine.Request, cons int) {
+			check: func(t *testing.T, req *engine.RawRequest, cons int) {
 				expectedLen := len("GET /1 HTTP/1.1\r\n\r\n")
 				if cons != expectedLen {
 					t.Errorf("expected consumption %d, got %d", expectedLen, cons)
 				}
 				if !bytes.Equal(req.Path, []byte("/1")) {
-					t.Errorf("wrong path for first request: %s", req.Path)
+					t.Errorf("wrong path for first RawRequest: %s", req.Path)
 				}
 			},
 		},
@@ -69,7 +69,7 @@ func TestParser(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			hbuf := make([]engine.Header, 64)
-			req := &engine.Request{}
+			req := &engine.RawRequest{}
 			cons, err := p.parseRaw(tc.raw, hbuf, req)
 
 			if !errors.Is(err, tc.wantErr) {
@@ -94,7 +94,7 @@ func BenchmarkParse(b *testing.B) {
 		"{\"key\":\"value_123\"}")
 
 	hbuf := make([]engine.Header, 64)
-	req := &engine.Request{}
+	req := &engine.RawRequest{}
 
 	b.ReportAllocs()
 	b.ResetTimer()

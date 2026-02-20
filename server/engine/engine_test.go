@@ -7,15 +7,11 @@ import (
 	"time"
 )
 
-// we need mock parser to test only epoll logic
-type mockParser struct{}
-
-func (m *mockParser) Parse(fd int, s *Session) error {
+func mockParse(fd int, s *Session) {
 	s.Offset = 0
-	s.Req = Request{}
+	s.Req = RawRequest{}
 	syscall.Write(fd, []byte("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK"))
 
-	return nil
 }
 
 func BenchmarkEpollHTTP(b *testing.B) {
@@ -24,7 +20,7 @@ func BenchmarkEpollHTTP(b *testing.B) {
 	target := "127.0.0.1:8888"
 
 	go func() {
-		if err := StartEpoll(addr, port, &mockParser{}); err != nil {
+		if err := StartEpoll(addr, port, mockParse); err != nil {
 			return
 		}
 	}()

@@ -1,17 +1,16 @@
-// parse raw bytes to HTTP request struct w zero-alloc
+// parse raw bytes to HTTP RawRequest struct w zero-alloc
 // onlu parser logic
 package protocol
 
 import (
 	"bytes"
 	"errors"
-	"syscall"
 
-	"github.com/kfcemployee/goserver/internal/engine"
+	"github.com/s00inx/goserver/server/engine"
 )
 
 var (
-	// available request methods
+	// available RawRequest methods
 	availablem = [][]byte{
 		[]byte("GET"),
 		[]byte("POST"),
@@ -25,20 +24,22 @@ var (
 // should be init in server.go
 type HTTPParser struct{}
 
-// parse raw bytes to request struct from session w zero-alloc
-func (p *HTTPParser) Parse(fd int, s *engine.Session) error {
+type cbfunc func(fd int, req *engine.RawRequest, buf []byte)
+
+// parse raw bytes to RawRequest struct from session w zero-alloc
+func (p *HTTPParser) Parse(fd int, s *engine.Session, onreq cbfunc) error {
 	var err error
 	for {
 		cons, parserr := p.parseRaw(s.Buf[:s.Offset], s.Hbuf[:], &s.Req)
 		if parserr == nil {
-			syscall.Write(fd, []byte("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK"))
+			onreq(fd, &s.Req, s.Buf[:cons])
 
 			rem := s.Offset - cons
 			if rem > 0 {
 				copy(s.Buf, s.Buf[cons:s.Offset])
 			}
 			s.Offset = rem
-			s.Req = engine.Request{}
+			s.Req = engine.RawRequest{}
 
 			if s.Offset == 0 {
 				break
@@ -58,8 +59,8 @@ func (p *HTTPParser) Parse(fd int, s *engine.Session) error {
 	return nil
 }
 
-// input raw data bytes, buffer for headers, request ptr from session struct
-func (p *HTTPParser) parseRaw(raw []byte, hbuf []engine.Header, req *engine.Request) (int, error) {
+// input raw data bytes, buffer for headers, RawRequest ptr from session struct
+func (p *HTTPParser) parseRaw(raw []byte, hbuf []engine.Header, req *engine.RawRequest) (int, error) {
 	crs := 0
 	req.Headers = hbuf[:0]
 
@@ -72,14 +73,14 @@ func (p *HTTPParser) parseRaw(raw []byte, hbuf []engine.Header, req *engine.Requ
 		return start + idx
 	}
 
-	// find request method
+	// find RawRequest method
 	sep := findsep(crs, ' ')
 	if sep == -1 {
 		return 0, errIncomplete
 	}
 	req.Method = raw[crs:sep]
 
-	// check if request method is valid
+	// check if RawRequest method is valid
 	isvalid := false
 	for _, me := range availablem {
 		if bytes.Equal(me, req.Method) {
@@ -93,7 +94,7 @@ func (p *HTTPParser) parseRaw(raw []byte, hbuf []engine.Header, req *engine.Requ
 	}
 	crs = sep + 1
 
-	// find request path
+	// find RawRequest path
 	sep = findsep(crs, ' ')
 	if sep == -1 {
 		return 0, errIncomplete
@@ -101,7 +102,7 @@ func (p *HTTPParser) parseRaw(raw []byte, hbuf []engine.Header, req *engine.Requ
 	req.Path = raw[crs:sep]
 	crs = sep + 1
 
-	// find request protocol (basically HTTP\1.1)
+	// find RawRequest protocol (basically HTTP\1.1)
 	sep = findsep(crs, '\n')
 	if sep == -1 {
 		return 0, errIncomplete
@@ -113,7 +114,7 @@ func (p *HTTPParser) parseRaw(raw []byte, hbuf []engine.Header, req *engine.Requ
 		return 0, errInvalid
 	}
 
-	// find request headers
+	// find RawRequest headers
 	var contentlen int
 	clh := []byte("Content-Length")
 	for {

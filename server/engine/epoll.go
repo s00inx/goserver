@@ -11,10 +11,12 @@ const (
 	maxEvents = 128
 )
 
+type cbFunc func(fd int, s *Session)
+
 // starting our server;
 // should be called from server.go;
 // arguments: address, port and router dependency
-func StartEpoll(addr [4]byte, port int, p httpParser) error {
+func StartEpoll(addr [4]byte, port int, cb cbFunc) error {
 	fd, err := listenSocket(addr, port)
 	if err != nil {
 		return err
@@ -31,7 +33,7 @@ func StartEpoll(addr [4]byte, port int, p httpParser) error {
 	})
 
 	jobs := make(chan int, 1024)
-	startWorkerPool(jobs, epollfd, p)
+	startWorkerPool(jobs, epollfd, cb)
 
 	events := make([]syscall.EpollEvent, maxEvents)
 	for {
