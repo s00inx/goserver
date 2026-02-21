@@ -40,11 +40,11 @@ type Param struct {
 // session is an arena for pre-allocated RawRequest data
 // buf, offset for raw data, hbuf and req is pre-allocated buffer for headers and RawRequest struct from pool
 type Session struct {
-	Buf    []byte
-	Offset int
+	Buf    []byte // dep. on maxRequestSize its 2**16 - 1 byte
+	Offset int    // 4 byte
 
-	Hbuf [64]Header
-	Req  RawRequest
+	Hbuf [64]Header // 64 * ?? byte
+	Req  RawRequest // 24 bytes (slice ptr, len and cap) bc it is window to s.Buf --^
 }
 
 // reset session for put it to pool
@@ -56,19 +56,19 @@ func (s *Session) reset() {
 }
 
 // pool for sessions
-var SessionPool = sync.Pool{
+var sessionPool = sync.Pool{
 	New: func() any {
 		return &Session{Buf: make([]byte, maxRawRequestSize)}
 	},
 }
 
 // handle RawRequest // fd -> parser -> router -> handler -> write & close
-func workerEpoll(epollfd int, jobs chan int, Sessions []atomic.Pointer[Session], cb cbFunc) {
+func workerEpoll(epollfd int, jobs chan int, Sessions []atomic.Pointer[Session], cb handleConn) {
 	for fd := range jobs {
 		s := Sessions[fd].Load() // load pointer atomically so we don't get invalid ptr
 		if s == nil {
 			// get new session from pool
-			newsession := SessionPool.Get().(*Session)
+			newsession := sessionPool.Get().(*Session)
 			newsession.reset()
 
 			Sessions[fd].Store(newsession) // atomically make new session
@@ -82,7 +82,7 @@ func workerEpoll(epollfd int, jobs chan int, Sessions []atomic.Pointer[Session],
 			// clearing session before put it to pool
 			s.reset()
 
-			SessionPool.Put(s)
+			sessionPool.Put(s)
 			syscall.Close(fd) // closing socket AFTER putting it to pool
 			continue
 		}
@@ -100,12 +100,13 @@ func workerEpoll(epollfd int, jobs chan int, Sessions []atomic.Pointer[Session],
 }
 
 // start simple worker pool for handling a RawRequest
-func startWorkerPool(jobs chan int, epollfd int, cb cbFunc) {
+func startWorkerPool(jobs chan int, epollfd int, cb handleConn) {
 	// get r limit (means max count of descriptors)
+	// this is unsafe (atm) bc rlimoit can be very large so we have a lot of unused pre-allocated memory
 	rlim := syscall.Rlimit{}
 	syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rlim)
 
-	Sessions := make([]atomic.Pointer[Session], rlim.Max)
+	Sessions := make([]atomic.Pointer[Session], rlim.Cur)
 	// i use atomic pointer here bc i need atomic access to ptr
 
 	numWorkers := runtime.NumCPU()

@@ -99,7 +99,7 @@ func BenchmarkParse(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = p.parseRaw(raw, hbuf, req)
 		req.Headers = hbuf[:0]
 	}

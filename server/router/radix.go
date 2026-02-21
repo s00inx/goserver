@@ -1,3 +1,4 @@
+// radix tree for router logic, it is not acessible from upper packages so use an abstraction: Router
 package router
 
 import (
@@ -6,25 +7,19 @@ import (
 	"github.com/s00inx/goserver/server/engine"
 )
 
-type Handler func()
+type Handler func() // signature for handler
 
 // radix tree node
-type Node struct {
+type node struct {
 	prefix  []byte
-	ch      []Node  // children in flat area for data locality to not miss the cache
+	ch      []node  // children in flat area for data locality to not miss the cache
 	handler Handler // our handler func
 	isparam bool    // is node prefix param?
 }
 
-func InitRoot() Node {
-	return Node{
-		ch: make([]Node, 0),
-	}
-}
-
 // insert node to tree that means link path and handler
-func (n *Node) Insert(path []byte, h Handler) {
-	// toggle first slash
+func (n *node) insert(path []byte, h Handler) {
+	// cut first slash
 	if len(path) > 0 && path[0] == '/' {
 		path = path[1:]
 	}
@@ -56,10 +51,10 @@ func (n *Node) Insert(path []byte, h Handler) {
 
 		// if no target -> make new Node
 		if idx == -1 {
-			target := Node{
+			target := node{
 				prefix:  pref,
 				isparam: isparam,
-				ch:      make([]Node, 0),
+				ch:      make([]node, 0),
 			}
 			cur.ch = append(cur.ch, target)
 			idx = len(cur.ch) - 1
@@ -70,12 +65,16 @@ func (n *Node) Insert(path []byte, h Handler) {
 	cur.handler = h
 }
 
-// check if req path match any route and parse params
-func (n *Node) Match(path []byte, rreq *engine.RawRequest) Handler {
+// check if req path match any route and parse params,
+// we use bytes.IndexByte, and bytes.HasPrefix for zero-alloc byte manipulations
+func (n *node) match(path []byte, rreq *engine.RawRequest) Handler {
+	// cut first slash
 	if len(path) > 0 && path[0] == '/' {
 		path = path[1:]
 	}
 	cur := n
+
+	// while any prefix in our path
 	for len(path) > 0 {
 		found := false
 

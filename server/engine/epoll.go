@@ -11,12 +11,14 @@ const (
 	maxEvents = 128
 )
 
-type cbFunc func(fd int, s *Session)
+// callback func for handling raw data from socket,
+// fd is socket descriptor, and s is Session related to this descriptor
+type handleConn func(fd int, s *Session)
 
 // starting our server;
 // should be called from server.go;
-// arguments: address, port and router dependency
-func StartEpoll(addr [4]byte, port int, cb cbFunc) error {
+// arguments: address, port and handle conn func (do w socket)
+func StartEpoll(addr [4]byte, port int, cb handleConn) error {
 	fd, err := listenSocket(addr, port)
 	if err != nil {
 		return err
@@ -26,7 +28,7 @@ func StartEpoll(addr [4]byte, port int, cb cbFunc) error {
 	// creating new epoll instance
 	epollfd, _ := syscall.EpollCreate1(0)
 
-	// register listening soket to epoll
+	// register listening socket to epoll
 	syscall.EpollCtl(epollfd, syscall.EPOLL_CTL_ADD, fd, &syscall.EpollEvent{
 		Events: syscall.EPOLLIN,
 		Fd:     int32(fd),

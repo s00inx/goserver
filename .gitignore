@@ -2,3 +2,4 @@ benchtmp/
 *.out
 *.test
 tree
+.*
