@@ -2,15 +2,14 @@ package engine
 
 import (
 	"net"
-	"syscall"
 	"testing"
 	"time"
 )
 
-func mockParse(fd int, s *Session) {
+func mockParse(s *Session) {
 	s.Offset = 0
 	s.Req = RawRequest{}
-	syscall.Write(fd, []byte("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK"))
+	// syscall.Write(_, []byte("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK"))
 
 }
 

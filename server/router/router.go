@@ -1,6 +1,8 @@
 // HTTPRouter logic and public methods
 package router
 
+// TODO: add persing for all methods
+
 import (
 	"github.com/s00inx/goserver/server/engine"
 )
@@ -12,7 +14,7 @@ const (
 	mPut
 	mDelete
 	mUnknown
-	mcnt
+	mcnt // counts of methods
 )
 
 // http router: store only array of tree root ptrs
@@ -39,12 +41,14 @@ func parseMethod(m []byte) int {
 	// switch on 1st byte
 	switch m[0] {
 	case 'G': // GET
-		return mGet
+		if len(m) == 3 {
+			return mGet
+		}
 	case 'P':
-		if len(m) > 1 && m[1] == 'O' {
+		if len(m) == 4 && m[1] == 'O' {
 			return mPost
 		} // POST
-		if len(m) > 1 && m[1] == 'U' {
+		if len(m) == 3 && m[1] == 'U' {
 			return mPut
 		} // PUT
 	case 'D':
@@ -60,7 +64,7 @@ func (r *HTTPRouter) Serve(rreq *engine.RawRequest) Handler {
 		return nil // 404
 	}
 
-	return r.trees[mi].match(rreq.Path, rreq)
+	return r.trees[mi].match(rreq.Path, rreq) // 404
 }
 
 // common func to link file to path ;

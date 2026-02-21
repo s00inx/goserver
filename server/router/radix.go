@@ -7,8 +7,6 @@ import (
 	"github.com/s00inx/goserver/server/engine"
 )
 
-type Handler func() // signature for handler
-
 // radix tree node
 type node struct {
 	prefix  []byte
@@ -80,6 +78,10 @@ func (n *node) match(path []byte, rreq *engine.RawRequest) Handler {
 
 		for i := range cur.ch {
 			c := &cur.ch[i]
+
+			if len(c.prefix) > 0 && c.prefix[0] != path[0] && !(*c).isparam {
+				continue
+			}
 
 			if c.isparam {
 				end := bytes.IndexByte(path, '/')

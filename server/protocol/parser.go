@@ -26,15 +26,15 @@ type HTTPParser struct{}
 
 // callback func for handling parsed data,
 // so it is called when parser did full request
-type HandleParsedFunc func(fd int, req *engine.RawRequest, buf []byte)
+type HandleParsedFunc func(s *engine.Session, buf []byte)
 
 // parse raw bytes to RawRequest struct from session w zero-alloc
-func (p *HTTPParser) Parse(fd int, s *engine.Session, onreq HandleParsedFunc) error {
+func (p *HTTPParser) Parse(s *engine.Session, onreq HandleParsedFunc) error {
 	var err error
 	for {
 		cons, parserr := p.parseRaw(s.Buf[:s.Offset], s.Hbuf[:], &s.Req)
 		if parserr == nil {
-			onreq(fd, &s.Req, s.Buf[:cons])
+			onreq(s, s.Buf[:cons])
 
 			rem := s.Offset - cons
 			if rem > 0 {

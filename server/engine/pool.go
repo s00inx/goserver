@@ -40,7 +40,8 @@ type Param struct {
 // session is an arena for pre-allocated RawRequest data
 // buf, offset for raw data, hbuf and req is pre-allocated buffer for headers and RawRequest struct from pool
 type Session struct {
-	Buf    []byte // dep. on maxRequestSize its 2**16 - 1 byte
+	Fd     int
+	Buf    []byte // depends on maxRequestSize its 2**16 - 1 byte
 	Offset int    // 4 byte
 
 	Hbuf [64]Header // 64 * ?? byte
@@ -49,6 +50,7 @@ type Session struct {
 
 // reset session for put it to pool
 func (s *Session) reset() {
+	s.Fd = 0
 	s.Req = RawRequest{}
 	s.Offset = 0
 	s.Req.P = []Param{}
@@ -70,6 +72,7 @@ func workerEpoll(epollfd int, jobs chan int, Sessions []atomic.Pointer[Session],
 			// get new session from pool
 			newsession := sessionPool.Get().(*Session)
 			newsession.reset()
+			newsession.Fd = fd
 
 			Sessions[fd].Store(newsession) // atomically make new session
 			s = newsession
@@ -88,7 +91,7 @@ func workerEpoll(epollfd int, jobs chan int, Sessions []atomic.Pointer[Session],
 		}
 		if n > 0 {
 			s.Offset += n
-			cb(fd, s)
+			cb(s)
 		}
 
 		ev := syscall.EpollEvent{
