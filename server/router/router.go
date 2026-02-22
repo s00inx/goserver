@@ -4,6 +4,8 @@ package router
 // TODO: add persing for all methods
 
 import (
+	"bytes"
+
 	"github.com/s00inx/goserver/server/engine"
 )
 
@@ -19,7 +21,19 @@ const (
 
 // http router: store only array of tree root ptrs
 type HTTPRouter struct {
-	trees [mcnt]*node
+	trees [mcnt]*node // static trees for common methods for constant search
+
+	// dynamic trees means trees for non-common methods,
+	// user can basically add any method, i can't filter it
+	// trash realisation using 2 slices :(( should use map
+	dynTrees []*node
+	dynNames []dmentry
+}
+
+// dynamic route entry for link id and name
+type dmentry struct {
+	name []byte
+	id   int
 }
 
 // init new http router with array of ptrs to roots of trees for every method,
@@ -60,23 +74,48 @@ func parseMethod(m []byte) int {
 // serve: find a handler to path
 func (r *HTTPRouter) Serve(rreq *engine.RawRequest) Handler {
 	mi := parseMethod(rreq.Method)
-	if mi == mUnknown {
-		return nil // 404
+
+	// fast search on common REST methods
+	if mi != mUnknown {
+		return r.trees[mi].match(rreq.Path, rreq)
 	}
 
-	return r.trees[mi].match(rreq.Path, rreq) // 404
+	// fallback search in dynamic trees
+	for _, entry := range r.dynNames {
+		if bytes.Equal(entry.name, rreq.Method) {
+			return r.dynTrees[entry.id].match(rreq.Path, rreq)
+		}
+	}
+
+	return nil
 }
 
 // common func to link file to path ;
 // note: there is 2 allocs when we call []byte(string) but since it's one time it doesnt affect runtime performance
 func (r *HTTPRouter) Handle(method, path string, h Handler) {
-	mi := parseMethod([]byte(method))
+	mb := []byte(method)
+	mi := parseMethod(mb)
 
-	if mi == mUnknown {
+	// if method in static -> insert and exit
+	if mi != mUnknown {
+		r.trees[mi].insert([]byte(path), h)
 		return
 	}
 
-	r.trees[mi].insert([]byte(path), h)
+	// check if tree for method is exist
+	for _, entry := range r.dynNames {
+		if bytes.Equal(entry.name, mb) {
+			r.dynTrees[entry.id].insert([]byte(path), h)
+			return
+		}
+	}
+
+	// register new dynamic route
+	nid := len(r.dynTrees)
+	r.dynNames = append(r.dynNames, dmentry{name: mb, id: nid})
+	nn := &node{ch: make([]node, 0)}
+	r.dynTrees = append(r.dynTrees, nn)
+	nn.insert([]byte(path), h)
 }
 
 // easy method to register GET request, a bit of syntactic sugar :)

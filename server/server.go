@@ -20,35 +20,28 @@ func Test() {
 		prs: protocol.HTTPParser{},
 	}
 
-	handler1 := func(w *router.ResponseWriter, r *router.Request) {
-		w.Send(200, []byte{}, []byte("hello world"))
+	handler1 := func(c *router.Context) {
+		c.Send(200, []byte("hello world"))
 	}
-
-	// handler2 := func(w *router.ResponseWriter, r *router.Request) {
-	// 	fmt.Println("Handler 2")
-	// }
 
 	srv.R.Get("/h", handler1)
 
-	parseFunc := func(s *engine.Session) {
+	parseFunc := func(s *engine.Session) (bool, error) {
 		onReq := func(s *engine.Session, buf []byte) {
 			h := srv.R.Serve(&s.Req)
 
 			if h != nil {
-				req := &router.Request{
-					Raw: &s.Req,
-				}
-
-				w := &router.ResponseWriter{
+				c := &router.Context{
 					Session: s,
 				}
-				h(w, req)
+
+				h(c)
 			} else {
 				fmt.Println("error")
 			}
 		}
 
-		srv.prs.Parse(s, onReq)
+		return srv.prs.Parse(s, onReq)
 	}
 
 	engine.StartEpoll(addr, port, parseFunc)

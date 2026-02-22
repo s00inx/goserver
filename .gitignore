@@ -3,3 +3,4 @@ benchtmp/
 *.test
 tree
 .*
+*.pprof

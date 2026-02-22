@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	maxRawRequestSize = 1<<16 - 1
+	maxRawSize = 1<<16 - 1
 )
 
 // request struct, raw because it refers to bytes so we can't use it in user scope, we have Request for it
@@ -58,11 +58,20 @@ func (s *Session) reset() {
 }
 
 // pool for sessions
-var sessionPool = sync.Pool{
-	New: func() any {
-		return &Session{Buf: make([]byte, maxRawRequestSize)}
-	},
-}
+var (
+	// bufPool for sessions buffers
+	bufPool = sync.Pool{
+		New: func() any {
+			return make([]byte, maxRawSize)
+		},
+	}
+
+	sessionPool = sync.Pool{
+		New: func() any {
+			return &Session{}
+		},
+	}
+)
 
 // handle RawRequest // fd -> parser -> router -> handler -> write & close
 func workerEpoll(epollfd int, jobs chan int, Sessions []atomic.Pointer[Session], cb handleConn) {
@@ -78,8 +87,15 @@ func workerEpoll(epollfd int, jobs chan int, Sessions []atomic.Pointer[Session],
 			s = newsession
 		}
 
+		// give buffer to session only when needed so we Sessions
+		// it is useful when we have many keep-alive conns thst store bufs but not working
+		if s.Buf == nil {
+			buf := bufPool.Get().([]byte)
+			s.Buf = buf
+		}
+
 		n, err := syscall.Read(fd, s.Buf[s.Offset:])
-		if (err != nil && err != syscall.EAGAIN) || n == 0 || s.Offset > maxRawRequestSize {
+		if (err != nil && err != syscall.EAGAIN) || n == 0 || s.Offset > maxRawSize {
 			Sessions[fd].Store(nil) // atomically zeroing our ptr to session
 
 			// clearing session before put it to pool
@@ -89,9 +105,16 @@ func workerEpoll(epollfd int, jobs chan int, Sessions []atomic.Pointer[Session],
 			syscall.Close(fd) // closing socket AFTER putting it to pool
 			continue
 		}
+
 		if n > 0 {
 			s.Offset += n
-			cb(s)
+			shouldRelease, _ := cb(s)
+
+			if shouldRelease {
+				bufPool.Put(s.Buf[:0])
+				s.Buf = nil
+				s.Offset = 0
+			}
 		}
 
 		ev := syscall.EpollEvent{

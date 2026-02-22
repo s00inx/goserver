@@ -6,7 +6,7 @@ import (
 	"github.com/s00inx/goserver/server/engine"
 )
 
-func dummyHandler(w *ResponseWriter, req *Request) {}
+func dummyHandler(ctx *Context) {}
 
 func TestParse_method(t *testing.T) {
 	tests := []struct {

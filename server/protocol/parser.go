@@ -1,5 +1,5 @@
 // parse raw bytes to HTTP RawRequest struct w zero-alloc
-// onlu parser logic
+// only parser logic
 package protocol
 
 import (
@@ -7,17 +7,6 @@ import (
 	"errors"
 
 	"github.com/s00inx/goserver/server/engine"
-)
-
-var (
-	// available RawRequest methods
-	availablem = [][]byte{
-		[]byte("GET"),
-		[]byte("POST"),
-		[]byte("PUT"),
-		[]byte("PATCH"),
-		[]byte("DELETE"),
-	}
 )
 
 // stateless HTTPParser struct
@@ -29,7 +18,7 @@ type HTTPParser struct{}
 type HandleParsedFunc func(s *engine.Session, buf []byte)
 
 // parse raw bytes to RawRequest struct from session w zero-alloc
-func (p *HTTPParser) Parse(s *engine.Session, onreq HandleParsedFunc) error {
+func (p *HTTPParser) Parse(s *engine.Session, onreq HandleParsedFunc) (bool, error) {
 	var err error
 	for {
 		cons, parserr := p.parseRaw(s.Buf[:s.Offset], s.Hbuf[:], &s.Req)
@@ -44,7 +33,7 @@ func (p *HTTPParser) Parse(s *engine.Session, onreq HandleParsedFunc) error {
 			s.Req = engine.RawRequest{}
 
 			if s.Offset == 0 {
-				break
+				return true, nil
 			}
 			continue
 		} else if errors.Is(parserr, errIncomplete) {
@@ -56,9 +45,9 @@ func (p *HTTPParser) Parse(s *engine.Session, onreq HandleParsedFunc) error {
 	}
 
 	if err != nil {
-		return err
+		return false, err
 	}
-	return nil
+	return false, nil
 }
 
 // input raw data bytes, buffer for headers, RawRequest ptr from session struct
@@ -81,19 +70,6 @@ func (p *HTTPParser) parseRaw(raw []byte, hbuf []engine.Header, req *engine.RawR
 		return 0, errIncomplete
 	}
 	req.Method = raw[crs:sep]
-
-	// check if RawRequest method is valid
-	isvalid := false
-	for _, me := range availablem {
-		if bytes.Equal(me, req.Method) {
-			isvalid = true
-			break
-		}
-	}
-
-	if !isvalid {
-		return 0, errInvalid
-	}
 	crs = sep + 1
 
 	// find RawRequest path

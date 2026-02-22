@@ -6,11 +6,11 @@ import (
 	"time"
 )
 
-func mockParse(s *Session) {
+func mockParse(s *Session) (bool, error) {
 	s.Offset = 0
 	s.Req = RawRequest{}
 	// syscall.Write(_, []byte("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK"))
-
+	return true, nil
 }
 
 func BenchmarkEpollHTTP(b *testing.B) {

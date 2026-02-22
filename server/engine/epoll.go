@@ -13,7 +13,7 @@ const (
 
 // callback func for handling raw data from socket,
 // fd is socket descriptor, and s is Session related to this descriptor
-type handleConn func(s *Session)
+type handleConn func(s *Session) (bool, error)
 
 // starting our server;
 // should be called from server.go;
