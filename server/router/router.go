@@ -72,18 +72,23 @@ func parseMethod(m []byte) int {
 }
 
 // serve: find a handler to path
-func (r *HTTPRouter) Serve(rreq *engine.RawRequest) Handler {
-	mi := parseMethod(rreq.Method)
+func (r *HTTPRouter) Serve(s *engine.Session) Handler {
+	mi := parseMethod(s.Req.Method)
+
+	if idx := bytes.Index(s.Req.Path, []byte{'?'}); idx != -1 {
+		s.Req.RawQuery = s.Req.Path[idx+1:]
+		s.Req.Path = s.Req.Path[:idx]
+	}
 
 	// fast search on common REST methods
 	if mi != mUnknown {
-		return r.trees[mi].match(rreq.Path, rreq)
+		return r.trees[mi].match(s.Req.Path, s)
 	}
 
 	// fallback search in dynamic trees
 	for _, entry := range r.dynNames {
-		if bytes.Equal(entry.name, rreq.Method) {
-			return r.dynTrees[entry.id].match(rreq.Path, rreq)
+		if bytes.Equal(entry.name, s.Req.Method) {
+			return r.dynTrees[entry.id].match(s.Req.Path, s)
 		}
 	}
 

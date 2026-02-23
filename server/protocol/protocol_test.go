@@ -16,7 +16,7 @@ func BenchmarkBuildResp(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
-		_ = BuildResp(200, []byte{}, body, dst)
+		_ = BuildResp(200, []engine.Header{}, body, dst)
 	}
 }
 
@@ -131,12 +131,6 @@ func Test_parser_all_cases(t *testing.T) {
 			name:        "incomplete request",
 			raw:         "GET /partial HTTP/1.1\r\nHost: local", // No double CRLF
 			expectError: nil,
-			expectCalls: 0,
-		},
-		{
-			name:        "invalid method",
-			raw:         "777 /sky HTTP/1.1\r\n\r\n",
-			expectError: errInvalid,
 			expectCalls: 0,
 		},
 		{

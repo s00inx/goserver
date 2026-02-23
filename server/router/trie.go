@@ -65,7 +65,10 @@ func (n *node) insert(path []byte, h Handler) {
 
 // check if req path match any route and parse params,
 // we use bytes.IndexByte, and bytes.HasPrefix for zero-alloc byte manipulations
-func (n *node) match(path []byte, rreq *engine.RawRequest) Handler {
+func (n *node) match(path []byte, s *engine.Session) Handler {
+	rreq := &s.Req
+	rreq.Params = s.Pbuf[:0]
+
 	// cut first slash
 	if len(path) > 0 && path[0] == '/' {
 		path = path[1:]
@@ -89,12 +92,12 @@ func (n *node) match(path []byte, rreq *engine.RawRequest) Handler {
 					end = len(path)
 				}
 
-				if rreq.Pcount < len(rreq.P) {
-					rreq.P[rreq.Pcount] = engine.Param{
+				if rreq.Pcount < cap(s.Pbuf) {
+					rreq.Params = append(rreq.Params, engine.Param{
 						Key: c.prefix,
 						Val: path[:end],
-					}
-					rreq.Pcount++
+					})
+
 				}
 
 				path = path[end:]

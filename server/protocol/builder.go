@@ -1,5 +1,7 @@
 package protocol
 
+import "github.com/s00inx/goserver/server/engine"
+
 // lookup table for status codes
 // i use flat list instead of map bc codes is fixed
 var statusTable = [505][]byte{
@@ -39,12 +41,12 @@ var statusTable = [505][]byte{
 var (
 	proto = []byte("HTTP/1.1 ")
 	crlf  = []byte("\r\n")
-	cl    = []byte("Content-Length: ")
+	colon = []byte(": ")
 )
 
 // helper func to copy int to pre-allocated buf with zero-alloc, buf is dst[n:]
 // n should be uint bc / 10 (and % 10) for uints is faster (compiler use division by invariant integers), and our len or code > 0
-func intToBuf(buf []byte, n uint) int {
+func IntToBuf(buf []byte, n uint) int {
 	if n == 0 {
 		buf[0] = '0'
 		return 1
@@ -60,8 +62,24 @@ func intToBuf(buf []byte, n uint) int {
 	return copy(buf, tmp[i:])
 }
 
+func IntToByte(n int) []byte {
+	if n == 0 {
+		return []byte{0}
+	}
+
+	var tmp [20]byte
+	i := len(tmp)
+	for n > 0 {
+		i--
+		tmp[i] = byte(n%10) + '0'
+		n /= 10
+	}
+
+	return tmp[i:]
+}
+
 // build response w zero alloc
-func BuildResp(code int, headers, body, dst []byte) int {
+func BuildResp(code int, headers []engine.Header, body, dst []byte) int {
 	if code < 100 || code > 504 {
 		code = 500
 	}
@@ -75,9 +93,12 @@ func BuildResp(code int, headers, body, dst []byte) int {
 	n += copy(dst[n:], st)
 	n += copy(dst[n:], crlf)
 
-	n += copy(dst[n:], cl)
-	n += intToBuf(dst[n:], uint(len(body)))
-	n += copy(dst[n:], crlf)
+	for _, h := range headers {
+		n += copy(dst[n:], h.Key)
+		n += copy(dst[n:], colon)
+		n += copy(dst[n:], h.Val)
+		n += copy(dst[n:], crlf)
+	}
 
 	n += copy(dst[n:], crlf)
 	if len(body) > 0 {

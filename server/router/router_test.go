@@ -102,12 +102,15 @@ func TestRouter_handle_and_serve(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := &engine.RawRequest{
-				Method: tt.reqMethod,
-				Path:   tt.reqPath,
+
+			s := &engine.Session{
+				Req: engine.RawRequest{
+					Method: tt.reqMethod,
+					Path:   tt.reqPath,
+				},
 			}
 
-			handler := r.Serve(req)
+			handler := r.Serve(s)
 
 			hasHandler := handler != nil
 			if hasHandler != tt.expectHandler {
@@ -121,16 +124,18 @@ func BenchmarkRouter_serve(b *testing.B) {
 	r := NewHTTPRouter()
 	r.Get("/api/v1/users/profile", dummyHandler)
 
-	req := &engine.RawRequest{
-		Method: []byte("GET"),
-		Path:   []byte("/api/v1/users/profile"),
+	s := &engine.Session{
+		Req: engine.RawRequest{
+			Method: []byte("GET"),
+			Path:   []byte("/api/v1/users/profile"),
+		},
 	}
 
 	b.ReportAllocs()
 	b.ResetTimer()
 
 	for b.Loop() {
-		h := r.Serve(req)
+		h := r.Serve(s)
 		if h == nil {
 			b.Fatal("handler not found")
 		}
@@ -146,16 +151,18 @@ func BenchmarkRouter_massive_routes(b *testing.B) {
 	}
 
 	targetPath := []byte("/api/v1/resource/999")
-	req := &engine.RawRequest{
-		Method: []byte("GET"),
-		Path:   targetPath,
+	s := &engine.Session{
+		Req: engine.RawRequest{
+			Method: []byte("GET"),
+			Path:   targetPath,
+		},
 	}
 
 	b.ReportAllocs()
 	b.ResetTimer()
 
 	for b.Loop() {
-		h := r.Serve(req)
+		h := r.Serve(s)
 		if h == nil {
 			b.Fatal("handler not found among 1000 routes")
 		}

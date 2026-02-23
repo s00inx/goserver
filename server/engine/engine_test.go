@@ -2,6 +2,7 @@ package engine
 
 import (
 	"net"
+	"os"
 	"testing"
 	"time"
 )
@@ -58,4 +59,32 @@ func BenchmarkEpollHTTP(b *testing.B) {
 			}
 		}
 	})
+}
+
+func BenchmarkWriteBuf(b *testing.B) {
+	// Открываем /dev/null, чтобы системный вызов Write работал максимально быстро
+	devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer devNull.Close()
+
+	s := &Session{Fd: int(devNull.Fd())}
+
+	body := []byte("Hello, world! This is a zero-alloc engine test.")
+	b.ResetTimer()
+	b.ReportAllocs()
+	for b.Loop() {
+		_, err := WriteBuf(s, func(dst []byte) int {
+			off := 0
+			off += copy(dst[off:], []byte("HTTP/1.1 200 OK\r\n"))
+			off += copy(dst[off:], []byte("Content-Type: text/plain\r\n\r\n"))
+			off += copy(dst[off:], body)
+			return off
+		})
+
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
 }
