@@ -25,11 +25,11 @@ func (p *HTTPParser) Parse(s *engine.Session, onreq HandleParsedFunc) (bool, err
 		if parserr == nil {
 			onreq(s, s.Buf[:cons])
 
-			rem := s.Offset - cons
+			rem := int(s.Offset) - cons
 			if rem > 0 {
 				copy(s.Buf, s.Buf[cons:s.Offset])
 			}
-			s.Offset = rem
+			s.Offset = uint32(rem)
 			s.Req = engine.RawRequest{}
 
 			if s.Offset == 0 {
@@ -130,7 +130,7 @@ func (p *HTTPParser) parseRaw(raw []byte, hbuf []engine.Header, req *engine.RawR
 		key := raw[crs:coloni]
 		val := raw[vals:le]
 
-		// max header count is 64 so we need to check overflow
+		// max header count is .. so we need to check overflow
 		if len(req.Headers) < cap(hbuf) {
 			req.Headers = append(req.Headers, engine.Header{
 				Key: key,

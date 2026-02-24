@@ -3,6 +3,7 @@ package engine
 import (
 	"net"
 	"os"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -10,7 +11,8 @@ import (
 func mockParse(s *Session) (bool, error) {
 	s.Offset = 0
 	s.Req = RawRequest{}
-	// syscall.Write(_, []byte("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK"))
+	r := []byte("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK")
+	syscall.Write(int(s.Fd), r)
 	return true, nil
 }
 
@@ -38,7 +40,7 @@ func BenchmarkEpollHTTP(b *testing.B) {
 	}
 
 	b.ResetTimer()
-
+	b.ReportAllocs()
 	b.RunParallel(func(pb *testing.PB) {
 		conn, err := net.Dial("tcp", target)
 		if err != nil {
@@ -52,13 +54,24 @@ func BenchmarkEpollHTTP(b *testing.B) {
 
 		for pb.Next() {
 			if _, err := conn.Write(req); err != nil {
-				return
+				b.Errorf("Write error: %v", err)
+				break
 			}
 			if _, err := conn.Read(res); err != nil {
-				return
+				b.Errorf("Read error: %v", err)
+				break
 			}
 		}
 	})
+}
+
+var mockPayload = func(dst []byte) int {
+	body := []byte("Hello, world! This is a zero-alloc engine test.")
+	off := 0
+	off += copy(dst[off:], []byte("HTTP/1.1 200 OK\r\n"))
+	off += copy(dst[off:], []byte("Content-Type: text/plain\r\n\r\n"))
+	off += copy(dst[off:], body)
+	return off
 }
 
 func BenchmarkWriteBuf(b *testing.B) {
@@ -69,19 +82,12 @@ func BenchmarkWriteBuf(b *testing.B) {
 	}
 	defer devNull.Close()
 
-	s := &Session{Fd: int(devNull.Fd())}
+	s := &Session{Fd: uint32(devNull.Fd())}
 
-	body := []byte("Hello, world! This is a zero-alloc engine test.")
 	b.ResetTimer()
 	b.ReportAllocs()
 	for b.Loop() {
-		_, err := WriteBuf(s, func(dst []byte) int {
-			off := 0
-			off += copy(dst[off:], []byte("HTTP/1.1 200 OK\r\n"))
-			off += copy(dst[off:], []byte("Content-Type: text/plain\r\n\r\n"))
-			off += copy(dst[off:], body)
-			return off
-		})
+		_, err := WriteBuf(s, mockPayload)
 
 		if err != nil {
 			b.Fatal(err)

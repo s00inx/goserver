@@ -2,6 +2,7 @@
 package engine
 
 // TODO: error handling (!)
+// TODO: optimize session size, replace []byte (24 B) -> 2 uint16 (4 B)
 import (
 	"runtime"
 	"sync"
@@ -22,7 +23,7 @@ type RawRequest struct {
 	Path     []byte  // url
 	Params   []Param // url params
 	Pcount   int     // url param count
-	RawQuery []byte  // url query (? ...) raw bc i don't parse it if not needed
+	RawQuery []byte  // url query (? ...) raw bc i wouldn't parse it if not needed
 
 	Headers []Header // req headers
 	Body    []byte   // req body
@@ -43,13 +44,16 @@ type Param struct {
 // it manages buffers and fd for HTTPRequest, session is atomical instance for 1 socket fd !
 // buf, offset for raw data, hbuf and req is pre-allocated buffer for headers and RawRequest struct from pool
 type Session struct {
-	Fd     int    // 8 byte
-	Buf    []byte // depends on maxRequestSize ; buf sets off only when session need it, see workerEpoll func
-	Offset int    // 8 byte
+	raw    any
+	bufraw any    // 16 + 16 = 32
+	Buf    []byte // 24 ; buf sets off only when session need it, see workerEpoll func
 
-	Hbuf [64]Header // buf for headers, 64 * 24 on start
-	Pbuf [16]Param  // buf for path parameters, 64 * 24 on start
-	Req  RawRequest // 24 bytes (slice view) bc it is window to s.Buf --^
+	Hbuf [16]Header // I WILL OPTIMIZE THIS !!
+	Pbuf [16]Param  // and this
+
+	Req    RawRequest // and thiss
+	Fd     uint32
+	Offset uint32 // 4 + 4 = 8
 }
 
 // reset session for put it to pool
@@ -84,18 +88,24 @@ func workerEpoll(epollfd int, jobs chan int, Sessions []atomic.Pointer[Session],
 		s := Sessions[fd].Load() // load pointer atomically so we don't get invalid ptr
 		if s == nil {
 			// get new session from pool
-			newsession := sessionPool.Get().(*Session)
-			newsession.reset()
-			newsession.Fd = fd
+			nsRaw := sessionPool.Get()
+			ns := nsRaw.(*Session)
 
-			Sessions[fd].Store(newsession) // atomically make new session
-			s = newsession
+			ns.reset()
+			ns.Fd = uint32(fd)
+
+			Sessions[fd].Store(ns) // atomically make new session
+			s = ns
+			s.raw = nsRaw
 		}
 
 		// give buffer to session only when needed
 		// it is useful when we have many keep-alive conns thst store bufs but not working
 		if s.Buf == nil {
-			buf := bufPool.Get().([]byte)
+			bufraw := bufPool.Get()
+			buf := bufraw.([]byte)
+
+			s.bufraw = bufraw
 			s.Buf = buf[:cap(buf)]
 		}
 
@@ -106,17 +116,17 @@ func workerEpoll(epollfd int, jobs chan int, Sessions []atomic.Pointer[Session],
 			// clearing session before put it to pool
 			s.reset()
 
-			sessionPool.Put(s)
+			sessionPool.Put(s.raw)
 			syscall.Close(fd) // closing socket AFTER putting it to pool
 			continue
 		}
 
 		if n > 0 {
-			s.Offset += n
+			s.Offset += uint32(n)
 			shouldRelease, _ := cb(s)
 
 			if shouldRelease {
-				bufPool.Put(s.Buf)
+				bufPool.Put(s.bufraw)
 				s.Buf = nil
 				s.Offset = 0
 			}

@@ -67,7 +67,7 @@ func BenchmarkParseHeavy(b *testing.B) {
 	b.ResetTimer()
 
 	for b.Loop() {
-		s.Offset = len(raw)
+		s.Offset = uint32(len(raw))
 		copy(s.Buf[:], raw)
 		s.Req = engine.RawRequest{}
 
@@ -152,7 +152,7 @@ func Test_parser_all_cases(t *testing.T) {
 			parser := &HTTPParser{}
 
 			s := &engine.Session{
-				Offset: len(tt.raw),
+				Offset: uint32(len(tt.raw)),
 				Buf:    make([]byte, 4096),
 			}
 			copy(s.Buf[:], tt.raw)
