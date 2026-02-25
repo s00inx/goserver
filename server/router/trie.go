@@ -1,4 +1,4 @@
-// radix tree for router logic, it is not acessible from upper packages so use an abstraction: Router
+// prefix tree for router logic, it is not acessible from upper packages so use an abstraction: Router
 package router
 
 import (
@@ -7,7 +7,7 @@ import (
 	"github.com/s00inx/goserver/server/engine"
 )
 
-// radix tree node
+// tree node
 type node struct {
 	prefix  []byte
 	ch      []node  // children in flat area for data locality to not miss the cache
@@ -49,10 +49,10 @@ func (n *node) insert(path []byte, h Handler) {
 
 		// if no target -> make new Node
 		if idx == -1 {
-			target := node{
-				prefix:  pref,
-				isparam: isparam,
-				ch:      make([]node, 0),
+			prefCopy := make([]byte, len(pref))
+			copy(prefCopy, pref)
+			target := node{prefix: prefCopy, isparam: isparam,
+				ch: make([]node, 0),
 			}
 			cur.ch = append(cur.ch, target)
 			idx = len(cur.ch) - 1
@@ -65,64 +65,55 @@ func (n *node) insert(path []byte, h Handler) {
 
 // check if req path match any route and parse params,
 // we use bytes.IndexByte, and bytes.HasPrefix for zero-alloc byte manipulations
-func (n *node) match(path []byte, s *engine.Session) Handler {
-	rreq := &s.Req
-	rreq.Params = s.Pbuf[:0]
+func (n *node) match(s *engine.Session) Handler {
+	return n.find(s, s.Buf[s.Req.Path.St:s.Req.Path.End], s.Req.Path.St)
+}
 
-	// cut first slash
-	if len(path) > 0 && path[0] == '/' {
-		path = path[1:]
+func (n *node) find(s *engine.Session, fp []byte, curo uint16) Handler {
+	if len(fp) > 0 && fp[0] == '/' {
+		fp = fp[1:]
+		curo++
 	}
-	cur := n
 
-	// while any prefix in our path
-	for len(path) > 0 {
-		found := false
-
-		for i := range cur.ch {
-			c := &cur.ch[i]
-
-			if len(c.prefix) > 0 && c.prefix[0] != path[0] && !(*c).isparam {
-				continue
-			}
-
-			if c.isparam {
-				end := bytes.IndexByte(path, '/')
-				if end == -1 {
-					end = len(path)
-				}
-
-				if rreq.Pcount < cap(s.Pbuf) {
-					rreq.Params = append(rreq.Params, engine.Param{
-						Key: c.prefix,
-						Val: path[:end],
-					})
-
-				}
-
-				path = path[end:]
-				cur = c
-				found = true
-				break
-			}
-
-			if bytes.HasPrefix(path, c.prefix) {
-				rem := path[len(c.prefix):]
-				if len(rem) == 0 || rem[0] == '/' {
-					path = rem
-					cur = c
-					found = true
-					break
+	if len(fp) == 0 {
+		return n.handler
+	}
+	for i := range n.ch {
+		c := &n.ch[i]
+		if !c.isparam && bytes.HasPrefix(fp, c.prefix) {
+			rem := fp[len(c.prefix):]
+			if len(rem) == 0 || rem[0] == '/' {
+				if h := c.find(s, rem, curo+uint16(len(c.prefix))); h != nil {
+					return h
 				}
 			}
-		}
-		if !found {
-			return nil // 404
-		}
-
-		if len(path) > 0 && path[0] == '/' {
-			path = path[1:]
 		}
 	}
-	return cur.handler
+
+	for i := range n.ch {
+		c := &n.ch[i]
+		if c.isparam {
+			end := bytes.IndexByte(fp, '/')
+			if end == -1 {
+				end = len(fp)
+			}
+
+			pIdx := s.Req.Pcount
+			if pIdx < uint16(cap(s.Pbuf)) {
+				s.Pbuf[pIdx] = engine.Param{
+					Key: c.prefix,
+					Val: engine.View{St: curo, End: curo + uint16(end)},
+				}
+				s.Req.Pcount++
+			}
+
+			if h := c.find(s, fp[end:], curo+uint16(end)); h != nil {
+				return h
+			}
+
+			s.Req.Pcount = pIdx
+		}
+	}
+
+	return nil
 }

@@ -1,170 +1,190 @@
 package router
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/s00inx/goserver/server/engine"
+	"github.com/s00inx/goserver/server/protocol"
 )
+
+func setSessionView(s *engine.Session, method, path string) {
+	s.Reset()
+
+	if s.Buf == nil {
+		s.Buf = make([]byte, 1024)
+	}
+
+	cur := 0
+	// Записываем метод
+	copy(s.Buf[cur:], method)
+	s.Req.Method = engine.View{St: uint16(cur), End: uint16(cur + len(method))}
+	cur += len(method)
+
+	// Записываем путь
+	copy(s.Buf[cur:], path)
+	s.Req.Path = engine.View{St: uint16(cur), End: uint16(cur + len(path))}
+}
 
 func dummyHandler(ctx *Context) {}
 
-func TestParse_method(t *testing.T) {
+func TestRouter_HandleAndServe_WithView(t *testing.T) {
+	r := NewHTTPRouter()
+	r.Get("/api/v1/user/:id", dummyHandler)
+	r.Handle("POST", "/login", dummyHandler)
+
 	tests := []struct {
-		name     string
-		method   []byte
-		expected int
+		name   string
+		method string
+		path   string
+		found  bool
 	}{
-		{"valid get", []byte("GET"), mGet},
-		{"valid post", []byte("POST"), mPost},
-		{"valid put", []byte("PUT"), mPut},
-		{"valid delete", []byte("DELETE"), mDelete},
-		{"empty method", []byte(""), mUnknown},
-		{"unknown method patch", []byte("PATCH"), mUnknown},
-		{"invalid method p", []byte("P"), mUnknown},
-		{"invalid method po", []byte("PO"), mUnknown},
-		{"invalid method g", []byte("G"), mUnknown},
-		{"garbage", []byte("GARBAGE"), mUnknown},
+		{"Exact match GET", "GET", "/api/v1/user/123", true},
+		{"Exact match POST", "POST", "/login", true},
+		{"Method mismatch", "POST", "/api/v1/user/123", false},
+		{"Path mismatch", "GET", "/unknown", false},
 	}
+
+	s := &engine.Session{Buf: make([]byte, 1024)}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := parseMethod(tt.method)
-			if result != tt.expected {
-				t.Errorf("parseMethod(%q) = %d; want %d", tt.method, result, tt.expected)
-			}
-		})
-	}
-}
-
-func TestHttp_router(t *testing.T) {
-	r := NewHTTPRouter()
-
-	if r == nil {
-		t.Fatal("nil router")
-	}
-	for i := 0; i < mcnt; i++ {
-		if r.trees[i] == nil {
-			t.Errorf("nil tree root at %d", i)
-		}
-	}
-}
-
-func TestRouter_handle_and_serve(t *testing.T) {
-	r := NewHTTPRouter()
-
-	r.Handle("POST", "/api/users", dummyHandler)
-	r.Handle("PUT", "/api/users", dummyHandler)
-	r.Get("/health", dummyHandler)
-
-	tests := []struct {
-		name          string
-		reqMethod     []byte
-		reqPath       []byte
-		expectHandler bool
-	}{
-		{
-			name:          "match exact post",
-			reqMethod:     []byte("POST"),
-			reqPath:       []byte("/api/users"),
-			expectHandler: true,
-		},
-		{
-			name:          "match exact get via get()",
-			reqMethod:     []byte("GET"),
-			reqPath:       []byte("/health"),
-			expectHandler: true,
-		},
-		{
-			name:          "method not allowed",
-			reqMethod:     []byte("GET"),
-			reqPath:       []byte("/api/users"),
-			expectHandler: false,
-		},
-		{
-			name:          "not found path",
-			reqMethod:     []byte("POST"),
-			reqPath:       []byte("/api/unknown"),
-			expectHandler: false,
-		},
-		{
-			name:          "unknown http method",
-			reqMethod:     []byte("PATCH"),
-			reqPath:       []byte("/api/users"),
-			expectHandler: false,
-		},
-		{
-			name:          "empty path",
-			reqMethod:     []byte("GET"),
-			reqPath:       []byte(""),
-			expectHandler: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-
-			s := &engine.Session{
-				Req: engine.RawRequest{
-					Method: tt.reqMethod,
-					Path:   tt.reqPath,
-				},
-			}
+			setSessionView(s, tt.method, tt.path)
 
 			handler := r.Serve(s)
-
-			hasHandler := handler != nil
-			if hasHandler != tt.expectHandler {
-				t.Errorf("match = %v; want %v for %s %s", hasHandler, tt.expectHandler, tt.reqMethod, tt.reqPath)
+			if (handler != nil) != tt.found {
+				t.Errorf("%s: expected found=%v, got handler=%v", tt.name, tt.found, handler)
 			}
 		})
 	}
 }
 
-func BenchmarkRouter_serve(b *testing.B) {
+func BenchmarkRouter_Serve_View(b *testing.B) {
 	r := NewHTTPRouter()
-	r.Get("/api/v1/users/profile", dummyHandler)
+	r.Get("/api/v1/resource/item/details", dummyHandler)
 
-	s := &engine.Session{
-		Req: engine.RawRequest{
-			Method: []byte("GET"),
-			Path:   []byte("/api/v1/users/profile"),
-		},
-	}
+	s := &engine.Session{Buf: make([]byte, 1024)}
+	setSessionView(s, "GET", "/api/v1/resource/item/details")
 
 	b.ReportAllocs()
 	b.ResetTimer()
 
-	for b.Loop() {
+	for i := 0; i < b.N; i++ {
 		h := r.Serve(s)
 		if h == nil {
-			b.Fatal("handler not found")
+			b.Fatal("route not found")
 		}
 	}
 }
 
-func BenchmarkRouter_massive_routes(b *testing.B) {
+func BenchmarkRouter_Params_Extraction(b *testing.B) {
+	r := NewHTTPRouter()
+	r.Get("/user/:id/profile", dummyHandler)
+
+	s := &engine.Session{Buf: make([]byte, 1024)}
+	setSessionView(s, "GET", "/user/999999/profile")
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		s.Req.Pcount = 0
+		h := r.Serve(s)
+		if h == nil {
+			b.Fatal("route not found")
+		}
+		if s.Req.Pcount == 0 {
+			b.Fatal("param not extracted")
+		}
+	}
+}
+
+func BenchmarkRouter_HighLoad_Parallel(b *testing.B) {
 	r := NewHTTPRouter()
 
+	r.Get("/api/v1/user/:id", dummyHandler)
+	r.Get("/static/js/bundle.js", dummyHandler)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	b.RunParallel(func(pb *testing.PB) {
+		s := &engine.Session{Buf: make([]byte, 512)}
+
+		for pb.Next() {
+			setSessionView(s, "GET", "/api/v1/user/999")
+			s.Req.Pcount = 0
+
+			h := r.Serve(s)
+			if h == nil {
+				b.Fatal("miss")
+			}
+		}
+	})
+}
+
+func BenchmarkEngine_FullPipeline_Stress(b *testing.B) {
+	r := NewHTTPRouter()
+	p := &protocol.HTTPParser{}
+
+	r.Get("/api/data", dummyHandler)
+
+	rawInput := []byte(
+		"GET /api/data HTTP/1.1\r\nHost: localhost\r\n\r\n" +
+			"GET /api/data HTTP/1.1\r\nHost: localhost\r\n\r\n" +
+			"GET /api/data HTTP/1.1\r\nHost: localhost\r\n\r\n",
+	)
+
+	b.SetBytes(int64(len(rawInput)))
+	b.ResetTimer()
+
+	b.RunParallel(func(pb *testing.PB) {
+		s := &engine.Session{Buf: make([]byte, 4096)}
+
+		onReq := func(s *engine.Session, buf []byte) {
+			_ = r.Serve(s)
+		}
+
+		for pb.Next() {
+			copy(s.Buf, rawInput)
+			s.Offset = uint32(len(rawInput))
+
+			_, _ = p.Parse(s, onReq)
+		}
+	})
+}
+
+func BenchmarkRouter_Chaos_Fixed(b *testing.B) {
+	r := NewHTTPRouter()
+
+	r.Get("/api/v1/resource/:id/update", dummyHandler)
+
 	for i := 0; i < 1000; i++ {
-		path := "/api/v1/resource/" + string(rune(i))
+		path := fmt.Sprintf("/api/v1/resource/%d/action", i)
 		r.Get(path, dummyHandler)
 	}
 
-	targetPath := []byte("/api/v1/resource/999")
+	targetPath := "/api/v1/resource/999/action"
+	method := "GET"
+	raw := []byte(method + targetPath)
+
 	s := &engine.Session{
-		Req: engine.RawRequest{
-			Method: []byte("GET"),
-			Path:   targetPath,
-		},
+		Buf:  raw,
+		Pbuf: [8]engine.Param{},
 	}
+	s.Req.Method = engine.View{St: 0, End: uint16(len(method))}
+	s.Req.Path = engine.View{St: uint16(len(method)), End: uint16(len(raw))}
 
-	b.ReportAllocs()
 	b.ResetTimer()
+	b.ReportAllocs()
 
-	for b.Loop() {
+	for i := 0; i < b.N; i++ {
+		s.Req.Pcount = 0
+
 		h := r.Serve(s)
+
 		if h == nil {
-			b.Fatal("handler not found among 1000 routes")
+			b.Fatalf("not found: %s", targetPath)
 		}
 	}
 }

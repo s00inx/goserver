@@ -22,27 +22,30 @@ type Context struct {
 // !! Context as abstraction upon Session (getters)
 // get Request method
 func (c *Context) Method() []byte {
-	return c.Session.Req.Method
+	return c.Session.Req.Method.AsBuf(c.Session)
 }
 
 // get Request path
 func (c *Context) Path() []byte {
-	return c.Session.Req.Path
+	return c.Session.Req.Path.AsBuf(c.Session)
 }
 
 func (c *Context) Query() []byte {
-	return c.Session.Req.RawQuery
+	return c.Session.Req.RawQuery.AsBuf(c.Session)
 }
 
 func (c *Context) QueryGet(key []byte) []byte {
-	q := c.Session.Req.RawQuery
-	if len(q) == 0 {
+	view := c.Session.Req.RawQuery
+	if view.End <= view.St {
 		return nil
 	}
 
+	q := view.AsBuf(c.Session)
+
 	for len(q) > 0 {
-		idx := bytes.IndexByte(q, '&')
 		var pair []byte
+		idx := bytes.IndexByte(q, '&')
+
 		if idx == -1 {
 			pair = q
 			q = nil
@@ -56,45 +59,69 @@ func (c *Context) QueryGet(key []byte) []byte {
 			return after
 		}
 	}
+
 	return nil
 }
 
 func (c *Context) Protocol() []byte {
-	return c.Session.Req.Protocol
+	return c.Session.Req.Protocol.AsBuf(c.Session)
 }
 
 func (c *Context) Params() []engine.Param {
-	return c.Session.Req.Params
+	count := int(c.Session.Req.Pcount)
+	if count == 0 {
+		return nil
+	}
+
+	return c.Session.Pbuf[:count]
 }
 
 func (c *Context) Param(key []byte) []byte {
-	for _, p := range c.Session.Req.Params {
+	count := int(c.Session.Req.Pcount)
+
+	for i := range count {
+		p := &c.Session.Pbuf[i]
+
 		if bytes.Equal(p.Key, key) {
-			return p.Val
+			return p.Val.AsBuf(c.Session)
 		}
 	}
 	return nil
 }
 
 func (c *Context) ParamCount() int {
-	return c.Session.Req.Pcount
+	return int(c.Session.Req.Pcount)
 }
 
 func (c *Context) Headers() []engine.Header {
-	return c.Session.Req.Headers
+	count := int(c.Session.Req.Hcount)
+	res := make([]engine.Header, count)
+
+	for i := range count {
+		h := c.Session.Hbuf[i]
+		res[i] = engine.Header{
+			Key: h.Key.AsBuf(c.Session),
+			Val: h.Val.AsBuf(c.Session),
+		}
+	}
+
+	return res
 }
 
 func (c *Context) Header(key []byte) []byte {
-	for _, h := range c.Session.Req.Headers {
-		if bytes.Equal(h.Key, key) {
-			return h.Val
+	count := int(c.Session.Req.Hcount)
+
+	for i := range count {
+		h := &c.Session.Hbuf[i]
+		if bytes.Equal(h.Key.AsBuf(c.Session), key) {
+			return h.Val.AsBuf(c.Session)
 		}
 	}
 	return nil
 }
 
 func (c *Context) Body() []byte {
-	return c.Session.Req.Body
+	return c.Session.Req.Body.AsBuf(c.Session)
 }
 
 // ! Context as Response Writer (setters)

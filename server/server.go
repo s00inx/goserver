@@ -21,11 +21,10 @@ func Test() {
 	}
 
 	handler1 := func(c *router.Context) {
-		p := fmt.Appendf(nil, "%s", c.Session.Req.Params)
-		c.Send(200, []byte(p))
+		c.SendDirect(200, []byte("hello"))
 	}
 
-	srv.R.Get("/:id", handler1)
+	srv.R.Get("/h", handler1)
 
 	parseFunc := func(s *engine.Session) (bool, error) {
 		onReq := func(s *engine.Session, buf []byte) {

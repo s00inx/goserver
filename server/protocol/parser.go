@@ -51,9 +51,8 @@ func (p *HTTPParser) Parse(s *engine.Session, onreq HandleParsedFunc) (bool, err
 }
 
 // input raw data bytes, buffer for headers, RawRequest ptr from session struct
-func (p *HTTPParser) parseRaw(raw []byte, hbuf []engine.Header, req *engine.RawRequest) (int, error) {
+func (p *HTTPParser) parseRaw(raw []byte, hbuf []engine.HeaderView, req *engine.RawRequest) (int, error) {
 	crs := 0
-	req.Headers = hbuf[:0]
 
 	// find a separator
 	findsep := func(start int, sep byte) int {
@@ -69,7 +68,10 @@ func (p *HTTPParser) parseRaw(raw []byte, hbuf []engine.Header, req *engine.RawR
 	if sep == -1 {
 		return 0, errIncomplete
 	}
-	req.Method = raw[crs:sep]
+	req.Method = engine.View{
+		St:  uint16(crs),
+		End: uint16(sep),
+	}
 	crs = sep + 1
 
 	// find RawRequest path
@@ -77,7 +79,10 @@ func (p *HTTPParser) parseRaw(raw []byte, hbuf []engine.Header, req *engine.RawR
 	if sep == -1 {
 		return 0, errIncomplete
 	}
-	req.Path = raw[crs:sep]
+	req.Path = engine.View{
+		St:  uint16(crs),
+		End: uint16(sep),
+	}
 	crs = sep + 1
 
 	// find RawRequest protocol (basically HTTP\1.1)
@@ -86,7 +91,10 @@ func (p *HTTPParser) parseRaw(raw []byte, hbuf []engine.Header, req *engine.RawR
 		return 0, errIncomplete
 	}
 	if sep > crs && raw[sep-1] == '\r' {
-		req.Protocol = raw[crs : sep-1]
+		req.Protocol = engine.View{
+			St:  uint16(crs),
+			End: uint16(sep - 1),
+		}
 		crs = sep + 1
 	} else {
 		return 0, errInvalid
@@ -127,22 +135,30 @@ func (p *HTTPParser) parseRaw(raw []byte, hbuf []engine.Header, req *engine.RawR
 			vals++
 		}
 
-		key := raw[crs:coloni]
-		val := raw[vals:le]
+		key := engine.View{
+			St:  uint16(crs),
+			End: uint16(coloni),
+		}
+		val := engine.View{
+			St:  uint16(vals),
+			End: uint16(le),
+		}
 
 		// max header count is .. so we need to check overflow
-		if len(req.Headers) < cap(hbuf) {
-			req.Headers = append(req.Headers, engine.Header{
-				Key: key,
-				Val: val})
+		hi := int(req.Hcount)
+		if hi < cap(hbuf) {
+			hbuf[hi] = engine.HeaderView{Key: key, Val: val}
+			req.Hcount++
 		}
 
 		// find content-length header for body
 		// note: no Content-Lentgth means req has NO body
-		if len(key) == 14 && bytes.EqualFold(clh, key) {
-			for _, c := range val {
-				if c >= '0' && c <= '9' {
-					contentlen = contentlen*10 + int(c-'0')
+		if coloni-crs == 14 && (raw[crs] == 'C' || raw[crs] == 'c') {
+			if bytes.EqualFold(clh, raw[crs:coloni]) {
+				for _, c := range raw[vals:le] {
+					if c >= '0' && c <= '9' {
+						contentlen = contentlen*10 + int(c-'0')
+					}
 				}
 			}
 		}
@@ -155,7 +171,10 @@ func (p *HTTPParser) parseRaw(raw []byte, hbuf []engine.Header, req *engine.RawR
 		if crs+contentlen > len(raw) {
 			return 0, errIncomplete
 		}
-		req.Body = raw[crs : crs+contentlen]
+		req.Body = engine.View{
+			St:  uint16(crs),
+			End: uint16(crs + contentlen),
+		}
 		crs += contentlen
 	}
 
