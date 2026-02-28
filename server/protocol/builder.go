@@ -62,22 +62,6 @@ func IntToBuf(buf []byte, n uint) int {
 	return copy(buf, tmp[i:])
 }
 
-func IntToByte(n int) []byte {
-	if n == 0 {
-		return []byte{0}
-	}
-
-	var tmp [20]byte
-	i := len(tmp)
-	for n > 0 {
-		i--
-		tmp[i] = byte(n%10) + '0'
-		n /= 10
-	}
-
-	return tmp[i:]
-}
-
 // build response w zero alloc
 func BuildResp(code int, headers []engine.Header, body, dst []byte) int {
 	if code < 100 || code > 504 {
@@ -92,6 +76,13 @@ func BuildResp(code int, headers []engine.Header, body, dst []byte) int {
 	n := copy(dst, proto)
 	n += copy(dst[n:], st)
 	n += copy(dst[n:], crlf)
+	n += copy(dst[n:], []byte("Content-Length: "))
+
+	var tmp [64]byte
+	IntToBuf(tmp[:], uint(len(body)))
+
+	n += copy(dst[n:], []byte("Content-Length: "))
+	n += copy(dst[:n], tmp[:])
 
 	for _, h := range headers {
 		n += copy(dst[n:], h.Key)

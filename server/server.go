@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/s00inx/goserver/server/engine"
 	"github.com/s00inx/goserver/server/protocol"
@@ -12,6 +13,14 @@ type Server struct {
 	R   *router.HTTPRouter
 	prs protocol.HTTPParser
 }
+
+var (
+	ctxPool = sync.Pool{
+		New: func() any {
+			return &router.Context{}
+		},
+	}
+)
 
 func Test() {
 	addr, port := [4]byte{127, 0, 0, 1}, 8080
@@ -31,11 +40,12 @@ func Test() {
 			h := srv.R.Serve(s)
 
 			if h != nil {
-				c := &router.Context{
-					Session: s,
-				}
+				ctxPtr := ctxPool.Get()
+				c := ctxPtr.(router.Context)
 
-				h(c)
+				c.Reset(s, []router.Handler{})
+
+				h(&c)
 			} else {
 				fmt.Println("error")
 			}

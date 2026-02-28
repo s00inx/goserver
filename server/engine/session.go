@@ -51,10 +51,10 @@ type Session struct {
 	// ^-- big session buf ; all Views refer to THIS ;
 	// 24 ; buf sets off only when session need it, see workerEpoll func
 
-	Hbuf [16]HeaderView // headers view 128 B
-	Pbuf [8]Param       // params Key and Val view 256 B
+	Hbuf [16]HeaderView // headers view 128
+	Pbuf [8]Param       // params Key and Val view 256
 
-	Req    RawRequest // 24B request :)
+	Req    RawRequest // 24 request :)
 	Fd     uint32
 	Offset uint32 // 4 + 4 = 8
 }

@@ -9,10 +9,10 @@ import (
 
 // tree node
 type node struct {
+	handler Handler
 	prefix  []byte
-	ch      []node  // children in flat area for data locality to not miss the cache
-	handler Handler // our handler func
-	isparam bool    // is node prefix param?
+	ch      []node
+	isparam bool
 }
 
 // insert node to tree that means link path and handler
