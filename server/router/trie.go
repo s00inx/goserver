@@ -9,14 +9,14 @@ import (
 
 // tree node
 type node struct {
-	handler Handler
+	handler []Handler
 	prefix  []byte
 	ch      []node
 	isparam bool
 }
 
 // insert node to tree that means link path and handler
-func (n *node) insert(path []byte, h Handler) {
+func (n *node) insert(path []byte, h []Handler) {
 	// cut first slash
 	if len(path) > 0 && path[0] == '/' {
 		path = path[1:]
@@ -65,11 +65,11 @@ func (n *node) insert(path []byte, h Handler) {
 
 // check if req path match any route and parse params,
 // we use bytes.IndexByte, and bytes.HasPrefix for zero-alloc byte manipulations
-func (n *node) match(s *engine.Session) Handler {
+func (n *node) match(s *engine.Session) []Handler {
 	return n.find(s, s.Buf[s.Req.Path.St:s.Req.Path.End], s.Req.Path.St)
 }
 
-func (n *node) find(s *engine.Session, fp []byte, curo uint16) Handler {
+func (n *node) find(s *engine.Session, fp []byte, curo uint16) []Handler {
 	if len(fp) > 0 && fp[0] == '/' {
 		fp = fp[1:]
 		curo++

@@ -1,6 +1,8 @@
 package protocol
 
-import "github.com/s00inx/goserver/server/engine"
+import (
+	"github.com/s00inx/goserver/server/engine"
+)
 
 // lookup table for status codes
 // i use flat list instead of map bc codes is fixed
@@ -79,10 +81,10 @@ func BuildResp(code int, headers []engine.Header, body, dst []byte) int {
 	n += copy(dst[n:], []byte("Content-Length: "))
 
 	var tmp [64]byte
-	IntToBuf(tmp[:], uint(len(body)))
+	nn := IntToBuf(tmp[:], uint(len(body)))
 
-	n += copy(dst[n:], []byte("Content-Length: "))
-	n += copy(dst[:n], tmp[:])
+	n += copy(dst[n:], tmp[:nn])
+	n += copy(dst[n:], crlf)
 
 	for _, h := range headers {
 		n += copy(dst[n:], h.Key)

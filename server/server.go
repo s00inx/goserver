@@ -1,7 +1,6 @@
 package server
 
 import (
-	"fmt"
 	"sync"
 
 	"github.com/s00inx/goserver/server/engine"
@@ -36,21 +35,17 @@ func Test() {
 	srv.R.Get("/h", handler1)
 
 	parseFunc := func(s *engine.Session) (bool, error) {
+		c := ctxPool.Get().(*router.Context)
 		onReq := func(s *engine.Session, buf []byte) {
 			h := srv.R.Serve(s)
-
+			c.Reset(s, h)
 			if h != nil {
-				ctxPtr := ctxPool.Get()
-				c := ctxPtr.(router.Context)
-
-				c.Reset(s, []router.Handler{})
-
-				h(&c)
+				h[0](c)
+				ctxPool.Put(c)
 			} else {
-				fmt.Println("error")
+				c.Send404()
 			}
 		}
-
 		return srv.prs.Parse(s, onReq)
 	}
 

@@ -1,5 +1,7 @@
 package engine
 
+import "sync/atomic"
+
 // request struct, raw because it refers to bytes so we can't use it in user scope, we have Request for it
 // all slices are pointers to session Buf for zero-copy
 type RawRequest struct {
@@ -46,17 +48,19 @@ type Header struct {
 // buf, offset for raw data, hbuf and req is pre-allocated buffer for headers and RawRequest struct from pool
 type Session struct {
 	raw    any
-	bufraw any // 16 + 16 = 32
+	bufraw any
+	tnext  *Session
+	tprev  *Session
 	Buf    []byte
-	// ^-- big session buf ; all Views refer to THIS ;
-	// 24 ; buf sets off only when session need it, see workerEpoll func
-
-	Hbuf [16]HeaderView // headers view 128
-	Pbuf [8]Param       // params Key and Val view 256
-
-	Req    RawRequest // 24 request :)
+	Pbuf   [8]Param
+	slot   int
 	Fd     uint32
-	Offset uint32 // 4 + 4 = 8
+	Offset uint32
+	Hbuf   [16]HeaderView
+	Req    RawRequest
+
+	inWork atomic.Bool
+	_      [12]byte
 }
 
 // reset session for put it to pool

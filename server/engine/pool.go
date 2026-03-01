@@ -1,8 +1,6 @@
 // session management and worker logic
 package engine
 
-// TODO: error handling (!)
-// TODO: optimize session size, replace []byte (24 B) -> 2 uint16 (4 B)
 import (
 	"runtime"
 	"sync"
@@ -32,7 +30,7 @@ var (
 )
 
 // handle RawRequest // fd -> parser -> router -> handler -> write & close
-func workerEpoll(epollfd int, jobs chan int, Sessions []atomic.Pointer[Session], cb handleConn) {
+func workerEpoll(epollfd int, jobs chan int, Sessions []atomic.Pointer[Session], tw *TimerWheel, cb handleConn) {
 	for fd := range jobs {
 		s := Sessions[fd].Load() // load pointer atomically so we don't get invalid ptr
 		if s == nil {
@@ -42,10 +40,15 @@ func workerEpoll(epollfd int, jobs chan int, Sessions []atomic.Pointer[Session],
 
 			ns.Reset()
 			ns.Fd = uint32(fd)
+			ns.raw = nsRaw
 
 			Sessions[fd].Store(ns) // atomically make new session
 			s = ns
-			s.raw = nsRaw
+			tw.Update(s)
+		}
+
+		if !s.inWork.CompareAndSwap(false, true) {
+			continue
 		}
 
 		// give buffer to session only when needed
@@ -60,14 +63,19 @@ func workerEpoll(epollfd int, jobs chan int, Sessions []atomic.Pointer[Session],
 
 		n, err := syscall.Read(fd, s.Buf[s.Offset:])
 		if (err != nil && err != syscall.EAGAIN) || n == 0 || s.Offset > maxRawSize {
-			Sessions[fd].Store(nil) // atomically zeroing our ptr to session
+			if Sessions[fd].CompareAndSwap(s, nil) {
 
-			// clearing session before put it to pool
-			s.Reset()
+				if s.bufraw != nil {
+					bufPool.Put(s.bufraw)
+					s.bufraw = nil
+					s.Buf = nil
+				}
 
-			sessionPool.Put(s.raw)
-			syscall.Close(fd) // closing socket AFTER putting it to pool
-			continue
+				s.Reset()
+				sessionPool.Put(s.raw)
+				syscall.Close(fd)
+				continue
+			}
 		}
 
 		if n > 0 {
@@ -80,6 +88,8 @@ func workerEpoll(epollfd int, jobs chan int, Sessions []atomic.Pointer[Session],
 				s.Offset = 0
 			}
 		}
+
+		s.inWork.Store(false)
 
 		ev := syscall.EpollEvent{
 			Events: syscall.EPOLLIN | syscall.EPOLLONESHOT,
@@ -99,8 +109,19 @@ func startWorkerPool(jobs chan int, epollfd int, cb handleConn) {
 	Sessions := make([]atomic.Pointer[Session], rlim.Cur)
 	// i use atomic pointer here bc i need atomic access to ptr
 
+	// эта реализация предсказуема и хороша, но для большей производительности можно использовать арену структур,
+	// сейчас проблема в том, что сессии лежат в разнвх областях кучи, то есть если она фрагментированна, процессор каждый раз промахивается по кешу
+	// если сделать арену структур, то данные будут ложится в кеш, Hardware Prefetcher загрузит текущую сессию.
+	// данные будут выделяться в куче линией вначале, это будет занимать больше места (чем 8 байт на указатель),
+	// но обеспечат максимальный перформанс
+
+	tw := TimerWheel{
+		mask: 3,
+	}
+	go tw.StartKiller(Sessions)
+
 	numWorkers := runtime.NumCPU()
 	for range numWorkers {
-		go workerEpoll(epollfd, jobs, Sessions, cb)
+		go workerEpoll(epollfd, jobs, Sessions, &tw, cb)
 	}
 }

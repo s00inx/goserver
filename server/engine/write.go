@@ -4,6 +4,11 @@ import (
 	"syscall"
 )
 
+var (
+	res404 = []byte("HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nNot Found")
+	res500 = []byte("HTTP/1.1 500 Internal Server Error\r\nContent-Length: 21\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nInternal Server Error")
+)
+
 // callback func for build a response
 type buildFunc func(dst []byte) int
 
@@ -19,4 +24,12 @@ func WriteBuf(s *Session, cb buildFunc) (int, error) {
 
 	bufPool.Put(rawo)
 	return n, err
+}
+
+func Write404(s *Session) {
+	syscall.Write(int(s.Fd), res404)
+}
+
+func Write500(s *Session) {
+	syscall.Write(int(s.Fd), res500)
 }

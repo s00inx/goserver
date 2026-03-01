@@ -185,15 +185,6 @@ func (c *Context) SetCode(code int) {
 	c.code = uint16(code)
 }
 
-// set resp header with int val without overheads
-// func (c *Context) SetHeaderInt(key []byte, val int) {
-// 	if int(c.hC) > len(c.resH) {
-// 		return
-// 	}
-// 	c.resH[c.hC] = engine.Header{Key: key, Val: protocol.IntToByte(val)}
-// 	c.hC++
-// }
-
 // set header with []byte key and val
 func (c *Context) SetHeader(key, val []byte) {
 	if int(c.hC) > len(c.resH) {
@@ -204,20 +195,27 @@ func (c *Context) SetHeader(key, val []byte) {
 }
 
 // send resp direct with 0 alloc,
-// you should set headers by SetHeader func
+// you should set headers by SetHeader
 func (c *Context) SendDirect(code int, body []byte) {
-
-	c.sendresp(int(code), c.resH[:], body)
+	c.sendresp(int(code), c.resH[:c.hC], body)
 }
 
 func (c *Context) SendWithBody(body []byte) {
 	c.sendresp(int(c.code), c.resH[:], body)
 }
 
-// Middleware functional !!
+// Middleware functional
 func (c *Context) Next() {
 	c.chindex++
 	if int(c.chindex) < len(c.handlers) {
 		c.handlers[c.chindex](c)
 	}
+}
+
+func (c *Context) Send404() {
+	engine.Write404(c.Session)
+}
+
+func (c *Context) Send500() {
+	engine.Write500(c.Session)
 }

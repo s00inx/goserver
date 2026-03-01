@@ -31,7 +31,7 @@ func dummyHandler(ctx *Context) {}
 func TestRouter_HandleAndServe_WithView(t *testing.T) {
 	r := NewHTTPRouter()
 	r.Get("/api/v1/user/:id", dummyHandler)
-	r.Handle("POST", "/login", dummyHandler)
+	r.Handle("POST", "/login", []Handler{})
 
 	tests := []struct {
 		name   string

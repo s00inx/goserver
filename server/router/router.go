@@ -21,6 +21,8 @@ const (
 
 // http router: store only array of tree root ptrs
 type HTTPRouter struct {
+	RouteGroup // basically def router is RouteGroup w empty prefix ("/")
+
 	trees [mcnt]*node // static trees for common methods for constant search
 
 	// dynamic trees means trees for non-common methods,
@@ -42,6 +44,12 @@ func NewHTTPRouter() *HTTPRouter {
 	r := &HTTPRouter{}
 	for i := range mcnt {
 		r.trees[i] = &node{ch: make([]node, 0)}
+	}
+
+	r.RouteGroup = RouteGroup{
+		prefix:      "",
+		router:      r,
+		middlewares: []Handler{Recovery},
 	}
 	return r
 }
@@ -72,7 +80,7 @@ func parseMethod(m []byte) int {
 }
 
 // serve: find a handler to path
-func (r *HTTPRouter) Serve(s *engine.Session) Handler {
+func (r *HTTPRouter) Serve(s *engine.Session) []Handler {
 	mi := parseMethod(s.Req.Method.AsBuf(s))
 
 	pb := s.Req.Path.AsBuf(s)
@@ -103,7 +111,7 @@ func (r *HTTPRouter) Serve(s *engine.Session) Handler {
 
 // common func to link file to path ;
 // note: there is 2 allocs when we call []byte(string) but since it's one time it doesnt affect runtime performance
-func (r *HTTPRouter) Handle(method, path string, h Handler) {
+func (r *HTTPRouter) Handle(method, path string, h []Handler) {
 	mb := []byte(method)
 	mi := parseMethod(mb)
 
@@ -129,8 +137,42 @@ func (r *HTTPRouter) Handle(method, path string, h Handler) {
 	nn.insert([]byte(path), h)
 }
 
-// easy method to register GET request, a bit of syntactic sugar :)
-// this is no overhead bc compiler will likely inline this call into handle
-func (r *HTTPRouter) Get(path string, h Handler) {
-	r.Handle("GET", path, h)
+// Group for routes with general middlewares and prefix
+type RouteGroup struct {
+	prefix      string
+	middlewares []Handler
+	router      *HTTPRouter
 }
+
+// new Route Group with Prefix (NOTE: we alloc when append but it doesn't affect runtime 0 alloc performance)
+func (g *RouteGroup) Group(prefix string) *RouteGroup {
+	return &RouteGroup{
+		prefix:      g.prefix + prefix,
+		middlewares: append([]Handler{}, g.middlewares...),
+		router:      g.router,
+	}
+}
+
+// link Middleware and Route Group
+func (g *RouteGroup) Use(mw Handler) {
+	g.middlewares = append(g.middlewares, mw)
+}
+
+// common func to link route group and path
+func (g *RouteGroup) Handle(method, path string, h Handler) {
+	fp := g.prefix + path
+
+	ch := make([]Handler, len(g.middlewares)+1)
+	copy(ch, g.middlewares)
+
+	ch[len(g.middlewares)] = h
+
+	g.router.Handle(method, fp, ch)
+}
+
+// a bit of syntactic sugar =))
+
+func (g *RouteGroup) Get(path string, h Handler)    { g.Handle("GET", path, h) }
+func (g *RouteGroup) Post(path string, h Handler)   { g.Handle("POST", path, h) }
+func (g *RouteGroup) Put(path string, h Handler)    { g.Handle("PUT", path, h) }
+func (g *RouteGroup) Delete(path string, h Handler) { g.Handle("DELETE", path, h) }

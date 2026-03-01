@@ -3,6 +3,7 @@ package engine
 import (
 	"net"
 	"os"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -93,4 +94,39 @@ func BenchmarkWriteBuf(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
+}
+
+func TestTimerWheel_RaceCondition(t *testing.T) {
+	tw := &TimerWheel{
+		mask: 3,
+	}
+
+	sessions := make([]atomic.Pointer[Session], 1024)
+
+	go tw.StartKiller(sessions)
+
+	ln, _ := net.Listen("tcp", "127.0.0.1:0")
+	addr := ln.Addr().String()
+
+	go func() {
+		conn, _ := ln.Accept()
+		rawConn, _ := conn.(*net.TCPConn)
+		f, _ := rawConn.File()
+		fd := int(f.Fd())
+
+		s := &Session{Fd: uint32(fd)}
+		sessions[fd].Store(s)
+
+		tw.Update(s)
+	}()
+
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn.Write([]byte("a"))
+
+	time.Sleep(5 * time.Second)
+
+	t.Log("Test finished. Check if any panics occurred above.")
 }
