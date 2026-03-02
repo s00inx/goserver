@@ -10,11 +10,18 @@ import (
 // timer wheel for request timeout,
 // mask should be timeout - 1 (no alignment bc struct created only at start)
 type TimerWheel struct {
-	slots  [4]*Session // (NOTE: power of 2 for using bitmask over %)
-	cursor int         // cur wheel slot
+	slots  [1 << 6]*Session // (NOTE: power of 2 for using bitmask over %)
+	cursor int              // cur wheel slot
 	mask   int
 
 	mu sync.Mutex
+}
+
+func NewWheel() *TimerWheel {
+	return &TimerWheel{
+		slots: [1 << 6]*Session{},
+		mask:  1<<6 - 1,
+	}
 }
 
 // update timer wheel bucket with O(1)

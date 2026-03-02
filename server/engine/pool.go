@@ -34,17 +34,19 @@ func workerEpoll(epollfd int, jobs chan int, Sessions []atomic.Pointer[Session],
 	for fd := range jobs {
 		s := Sessions[fd].Load() // load pointer atomically so we don't get invalid ptr
 		if s == nil {
-			// get new session from pool
 			nsRaw := sessionPool.Get()
 			ns := nsRaw.(*Session)
-
 			ns.Reset()
 			ns.Fd = uint32(fd)
 			ns.raw = nsRaw
 
-			Sessions[fd].Store(ns) // atomically make new session
-			s = ns
-			tw.Update(s)
+			if Sessions[fd].CompareAndSwap(nil, ns) {
+				s = ns
+				// tw.Update(s)
+			} else {
+				sessionPool.Put(nsRaw)
+				s = Sessions[fd].Load()
+			}
 		}
 
 		if !s.inWork.CompareAndSwap(false, true) {
@@ -115,13 +117,13 @@ func startWorkerPool(jobs chan int, epollfd int, cb handleConn) {
 	// данные будут выделяться в куче линией вначале, это будет занимать больше места (чем 8 байт на указатель),
 	// но обеспечат максимальный перформанс
 
-	tw := TimerWheel{
-		mask: 3,
-	}
-	go tw.StartKiller(Sessions)
+	// tw := TimerWheel{
+	// 	mask: 3,
+	// }
+	// go tw.StartKiller(Sessions)
 
 	numWorkers := runtime.NumCPU()
 	for range numWorkers {
-		go workerEpoll(epollfd, jobs, Sessions, &tw, cb)
+		go workerEpoll(epollfd, jobs, Sessions, nil, cb)
 	}
 }

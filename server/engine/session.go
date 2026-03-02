@@ -68,6 +68,10 @@ func (s *Session) Reset() {
 	s.Fd = 0
 	s.Offset = 0
 
+	s.tnext = nil
+	s.tprev = nil
+	s.inWork.Store(false)
+
 	s.Req = RawRequest{}
 	s.Req.Hcount = 0
 	s.Req.Pcount = 0
