@@ -2,7 +2,6 @@
 package engine
 
 import (
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -30,8 +29,15 @@ var (
 )
 
 // handle RawRequest // fd -> parser -> router -> handler -> write & close
-func workerEpoll(epollfd int, jobs chan int, Sessions []atomic.Pointer[Session], tw *TimerWheel, cb handleConn) {
+func workerEpoll(epollfd int, jobs chan int, Sessions []atomic.Pointer[Session], cb handleConn) {
+	tw := NewWheel()
+
 	for fd := range jobs {
+		if fd == -1 {
+			tw.killSharded(Sessions)
+			continue
+		}
+
 		s := Sessions[fd].Load() // load pointer atomically so we don't get invalid ptr
 		if s == nil {
 			nsRaw := sessionPool.Get()
@@ -42,13 +48,12 @@ func workerEpoll(epollfd int, jobs chan int, Sessions []atomic.Pointer[Session],
 
 			if Sessions[fd].CompareAndSwap(nil, ns) {
 				s = ns
-				// tw.Update(s)
+				tw.Update(s)
 			} else {
 				sessionPool.Put(nsRaw)
 				s = Sessions[fd].Load()
 			}
 		}
-
 		if !s.inWork.CompareAndSwap(false, true) {
 			continue
 		}
@@ -81,6 +86,8 @@ func workerEpoll(epollfd int, jobs chan int, Sessions []atomic.Pointer[Session],
 		}
 
 		if n > 0 {
+			tw.Update(s)
+
 			s.Offset += uint32(n)
 			shouldRelease, _ := cb(s)
 
@@ -99,31 +106,5 @@ func workerEpoll(epollfd int, jobs chan int, Sessions []atomic.Pointer[Session],
 		}
 		syscall.EpollCtl(epollfd, syscall.EPOLL_CTL_MOD, fd, &ev)
 	}
-}
 
-// start simple worker pool for handling a RawRequest
-func startWorkerPool(jobs chan int, epollfd int, cb handleConn) {
-	// get r limit (means max count of descriptors)
-
-	rlim := syscall.Rlimit{}
-	syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rlim)
-
-	Sessions := make([]atomic.Pointer[Session], rlim.Cur)
-	// i use atomic pointer here bc i need atomic access to ptr
-
-	// эта реализация предсказуема и хороша, но для большей производительности можно использовать арену структур,
-	// сейчас проблема в том, что сессии лежат в разнвх областях кучи, то есть если она фрагментированна, процессор каждый раз промахивается по кешу
-	// если сделать арену структур, то данные будут ложится в кеш, Hardware Prefetcher загрузит текущую сессию.
-	// данные будут выделяться в куче линией вначале, это будет занимать больше места (чем 8 байт на указатель),
-	// но обеспечат максимальный перформанс
-
-	// tw := TimerWheel{
-	// 	mask: 3,
-	// }
-	// go tw.StartKiller(Sessions)
-
-	numWorkers := runtime.NumCPU()
-	for range numWorkers {
-		go workerEpoll(epollfd, jobs, Sessions, nil, cb)
-	}
 }

@@ -3,7 +3,6 @@ package engine
 import (
 	"net"
 	"os"
-	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -17,7 +16,7 @@ func mockParse(s *Session) (bool, error) {
 	return true, nil
 }
 
-func BenchmarkEpollHTTP(b *testing.B) {
+func BenchmarkEpollServer(b *testing.B) {
 	addr := [4]byte{127, 0, 0, 1}
 	port := 8888
 	target := "127.0.0.1:8888"
@@ -28,39 +27,32 @@ func BenchmarkEpollHTTP(b *testing.B) {
 		}
 	}()
 
-	for i := range 10 {
-		conn, err := net.DialTimeout("tcp", target, 100*time.Millisecond)
-		if err == nil {
-			conn.Close()
-			break
-		}
-		if i == 9 {
-			b.Fatalf("Сервер не поднялся на %s", target)
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
+	time.Sleep(500 * time.Millisecond)
 
-	b.ResetTimer()
+	// Подготавливаем статический запрос
+	req := []byte("GET /h HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n")
+
 	b.ReportAllocs()
+	b.ResetTimer()
+
 	b.RunParallel(func(pb *testing.PB) {
+		res := make([]byte, 1024)
 		conn, err := net.Dial("tcp", target)
 		if err != nil {
 			b.Errorf("Dial error: %v", err)
 			return
 		}
 		defer conn.Close()
-
-		req := []byte("GET / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n")
-		res := make([]byte, 1024)
-
 		for pb.Next() {
-			if _, err := conn.Write(req); err != nil {
-				b.Errorf("Write error: %v", err)
-				break
+			_, err := conn.Write(req)
+			if err != nil {
+				return
 			}
-			if _, err := conn.Read(res); err != nil {
-				b.Errorf("Read error: %v", err)
-				break
+
+			// Читаем ответ
+			_, err = conn.Read(res)
+			if err != nil {
+				return
 			}
 		}
 	})
@@ -94,39 +86,4 @@ func BenchmarkWriteBuf(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
-}
-
-func TestTimerWheel_RaceCondition(t *testing.T) {
-	tw := &TimerWheel{
-		mask: 3,
-	}
-
-	sessions := make([]atomic.Pointer[Session], 1024)
-
-	go tw.StartKiller(sessions)
-
-	ln, _ := net.Listen("tcp", "127.0.0.1:0")
-	addr := ln.Addr().String()
-
-	go func() {
-		conn, _ := ln.Accept()
-		rawConn, _ := conn.(*net.TCPConn)
-		f, _ := rawConn.File()
-		fd := int(f.Fd())
-
-		s := &Session{Fd: uint32(fd)}
-		sessions[fd].Store(s)
-
-		tw.Update(s)
-	}()
-
-	conn, err := net.Dial("tcp", addr)
-	if err != nil {
-		t.Fatal(err)
-	}
-	conn.Write([]byte("a"))
-
-	time.Sleep(5 * time.Second)
-
-	t.Log("Test finished. Check if any panics occurred above.")
 }

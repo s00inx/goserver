@@ -3,11 +3,14 @@
 package engine
 
 import (
+	"runtime"
+	"sync/atomic"
 	"syscall"
+	"time"
 )
 
 const (
-	backlog   = 16 // backlog for listening
+	backlog   = 128 // backlog for listening
 	maxEvents = 128
 )
 
@@ -34,32 +37,62 @@ func StartEpoll(addr [4]byte, port int, cb handleConn) error {
 		Fd:     int32(fd),
 	})
 
-	jobs := make(chan int, 1024)
-	startWorkerPool(jobs, epollfd, cb)
+	// get r limit (means max count of descriptors)
+	rlim := syscall.Rlimit{}
+	syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rlim)
+
+	// i use atomic pointer here bc i need atomic access to ptr
+	Sessions := make([]atomic.Pointer[Session], rlim.Cur)
+
+	// эта реализация предсказуема и хороша, но для большей производительности можно использовать арену структур,
+	// сейчас проблема в том, что сессии лежат в разнвх областях кучи, то есть если она фрагментированна, процессор каждый раз промахивается по кешу
+	// если сделать арену структур, то данные будут ложится в кеш, Hardware Prefetcher загрузит текущую сессию.
+	// данные будут выделяться в куче линией вначале, это будет занимать больше места (чем 8 байт на указатель),
+	// но обеспечат максимальный перформанс
+
+	numworkers := runtime.NumCPU()
+	jobs := make([]chan int, numworkers)
+	for i := range numworkers {
+		jobs[i] = make(chan int, 1<<10)
+		go workerEpoll(epollfd, jobs[i], Sessions, cb)
+	}
 
 	events := make([]syscall.EpollEvent, maxEvents)
+
+	ticker := time.NewTicker(time.Second)
+
+	// я создаю один глобальный тикер при инициализации еполла
+	// такой подхож выбран чтобы привязать таймер к конкретному воркеру и конкретному потоку, не запуская отдельную горутину под него
+
 	for {
-		// number of events to accept
-		n, err := syscall.EpollWait(epollfd, events, -1)
-		if err != nil {
-			continue
-		}
+		select {
+		case <-ticker.C:
+			for i := range jobs {
+				jobs[i] <- -1
+			}
 
-		for i := range n {
-			efd := int(events[i].Fd) // current event descriptor
+		default:
+			// number of events to accept
+			n, err := syscall.EpollWait(epollfd, events, -1)
+			if err != nil {
+				continue
+			}
 
-			if efd == fd {
-				nfd, _, _ := syscall.Accept(fd) // new descriptor for new client
-				syscall.SetNonblock(nfd, true)
+			for i := range n {
+				efd := int(events[i].Fd) // current event descriptor
 
-				syscall.EpollCtl(epollfd, syscall.EPOLL_CTL_ADD, nfd, // adding new descriptor to epoll
-					&syscall.EpollEvent{
-						Events: syscall.EPOLLIN | syscall.EPOLLONESHOT,
-						Fd:     int32(nfd),
-					})
-				// log.Printf("new client connected: %d\n", nfd)
-			} else {
-				jobs <- efd
+				if efd == fd {
+					nfd, _, _ := syscall.Accept(fd) // new descriptor for new client
+					syscall.SetNonblock(nfd, true)
+
+					syscall.EpollCtl(epollfd, syscall.EPOLL_CTL_ADD, nfd, // adding new descriptor to epoll
+						&syscall.EpollEvent{
+							Events: syscall.EPOLLIN | syscall.EPOLLONESHOT | syscall.TCP_NODELAY,
+							Fd:     int32(nfd),
+						})
+				} else {
+					jobs[efd%numworkers] <- efd
+				}
 			}
 		}
 	}
