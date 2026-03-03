@@ -8,6 +8,11 @@ import (
 	"github.com/s00inx/goserver/server/router"
 )
 
+// TEMPORARY
+type Context struct {
+	router.Context
+}
+
 type Server struct {
 	R   *router.HTTPRouter
 	prs protocol.HTTPParser
@@ -21,33 +26,30 @@ var (
 	}
 )
 
-func Test() {
-	addr, port := [4]byte{127, 0, 0, 1}, 8080
-	srv := Server{
+func New() *Server {
+	return &Server{
 		R:   router.NewHTTPRouter(),
 		prs: protocol.HTTPParser{},
 	}
+}
 
-	handler1 := func(c *router.Context) {
-		c.SendDirect(200, []byte("hello"))
-	}
-
-	srv.R.Get("/h", handler1)
-
+func (srv *Server) Run(addr [4]byte, port int) error {
 	parseFunc := func(s *engine.Session) (bool, error) {
 		c := ctxPool.Get().(*router.Context)
+
 		onReq := func(s *engine.Session, buf []byte) {
 			h := srv.R.Serve(s)
 			c.Reset(s, h)
+
 			if h != nil {
 				h[0](c)
-				ctxPool.Put(c)
 			} else {
 				c.Send404()
 			}
+			ctxPool.Put(c)
 		}
 		return srv.prs.Parse(s, onReq)
 	}
 
-	engine.StartEpoll(addr, port, parseFunc)
+	return engine.StartEpoll(addr, port, parseFunc)
 }
