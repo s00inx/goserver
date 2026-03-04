@@ -1,6 +1,7 @@
 package server
 
 import (
+	"io"
 	"sync"
 
 	"github.com/s00inx/goserver/server/engine"
@@ -13,9 +14,15 @@ type Context struct {
 	router.Context
 }
 
+type Handler struct {
+	router.Handler
+}
+
 type Server struct {
-	R   *router.HTTPRouter
-	prs protocol.HTTPParser
+	R *router.HTTPRouter
+
+	parser protocol.HTTPParser
+	engine engine.Engine
 }
 
 var (
@@ -28,8 +35,9 @@ var (
 
 func New() *Server {
 	return &Server{
-		R:   router.NewHTTPRouter(),
-		prs: protocol.HTTPParser{},
+		R:      router.NewHTTPRouter(),
+		parser: protocol.HTTPParser{},
+		engine: engine.Engine{},
 	}
 }
 
@@ -48,8 +56,13 @@ func (srv *Server) Run(addr [4]byte, port int) error {
 			}
 			ctxPool.Put(c)
 		}
-		return srv.prs.Parse(s, onReq)
+		return srv.parser.Parse(s, onReq)
 	}
 
-	return engine.StartEpoll(addr, port, parseFunc)
+	return srv.engine.StartEpoll(addr, port, parseFunc)
+}
+
+// basically there is alloc (interface conversion), but since this is one-time operation it won't affect runtime
+func (srv *Server) Stop(out *io.Writer) {
+	srv.engine.StopServer(out)
 }

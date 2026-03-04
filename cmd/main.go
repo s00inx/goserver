@@ -1,6 +1,10 @@
 package main
 
 import (
+	"os"
+	"os/signal"
+	"syscall"
+
 	srv "github.com/s00inx/goserver/server"
 	"github.com/s00inx/goserver/server/router"
 )
@@ -13,6 +17,13 @@ func main() {
 	}
 
 	s.R.Get("/h", handler)
+	go func() {
+		s.Run([4]byte{127, 0, 0, 1}, 8080)
+	}()
 
-	s.Run([4]byte{127, 0, 0, 1}, 8080)
+	stop := make(chan os.Signal, 2)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+
+	<-stop
+	s.Stop(nil)
 }

@@ -20,9 +20,10 @@ func BenchmarkEpollServer(b *testing.B) {
 	addr := [4]byte{127, 0, 0, 1}
 	port := 8888
 	target := "127.0.0.1:8888"
+	e := Engine{}
 
 	go func() {
-		if err := StartEpoll(addr, port, mockParse); err != nil {
+		if err := e.StartEpoll(addr, port, mockParse); err != nil {
 			return
 		}
 	}()

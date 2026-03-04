@@ -9,9 +9,16 @@ import (
 	"time"
 )
 
+// engine struct for storing session state (mainly for graceful shutdown)
+type Engine struct {
+	lsfd, epollfd int
+	sessions      []atomic.Pointer[Session]
+	jobsarr       []chan int
+}
+
 const (
 	backlog   = 128 // backlog for listening
-	maxEvents = 128
+	maxEvents = 256
 )
 
 // callback func for handling raw data from socket,
@@ -21,16 +28,17 @@ type handleConn func(s *Session) (bool, error)
 // starting our server;
 // should be called from server.go;
 // arguments: address, port and handle conn func (do w socket)
-func StartEpoll(addr [4]byte, port int, cb handleConn) error {
+func (e *Engine) StartEpoll(addr [4]byte, port int, cb handleConn) error {
 	fd, err := listenSocket(addr, port)
 	if err != nil {
 		return err
 	}
 	defer syscall.Close(fd)
+	e.lsfd = fd
 
 	// creating new epoll instance
 	epollfd, _ := syscall.EpollCreate1(0)
-
+	e.epollfd = epollfd
 	// register listening socket to epoll
 	syscall.EpollCtl(epollfd, syscall.EPOLL_CTL_ADD, fd, &syscall.EpollEvent{
 		Events: syscall.EPOLLIN,
@@ -43,6 +51,7 @@ func StartEpoll(addr [4]byte, port int, cb handleConn) error {
 
 	// i use atomic pointer here bc i need atomic access to ptr
 	Sessions := make([]atomic.Pointer[Session], rlim.Cur)
+	e.sessions = Sessions
 
 	// эта реализация предсказуема и хороша, но для большей производительности можно использовать арену структур,
 	// сейчас проблема в том, что сессии лежат в разнвх областях кучи, то есть если она фрагментированна, процессор каждый раз промахивается по кешу
@@ -56,6 +65,7 @@ func StartEpoll(addr [4]byte, port int, cb handleConn) error {
 		jobs[i] = make(chan int, 1<<10)
 		go workerEpoll(epollfd, jobs[i], Sessions, cb)
 	}
+	e.jobsarr = jobs
 
 	events := make([]syscall.EpollEvent, maxEvents)
 
