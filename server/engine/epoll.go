@@ -66,17 +66,19 @@ func (e *Engine) StartEpoll(addr [4]byte, port int, cb handleConn) error {
 		go workerEpoll(epollfd, jobs[i], Sessions, cb)
 	}
 	e.jobsarr = jobs
-
 	events := make([]syscall.EpollEvent, maxEvents)
+
+	e.UpdateDate()
 
 	ticker := time.NewTicker(time.Second)
 
 	// я создаю один глобальный тикер при инициализации еполла
-	// такой подхож выбран чтобы привязать таймер к конкретному воркеру и конкретному потоку, не запуская отдельную горутину под него
+	// такой подход выбран чтобы привязать таймер к конкретному воркеру и конкретному потоку, не запуская отдельную горутину под него
 
 	for {
 		select {
 		case <-ticker.C:
+			e.UpdateDate()
 			for i := range jobs {
 				jobs[i] <- -1
 			}
@@ -97,9 +99,10 @@ func (e *Engine) StartEpoll(addr [4]byte, port int, cb handleConn) error {
 
 					syscall.EpollCtl(epollfd, syscall.EPOLL_CTL_ADD, nfd, // adding new descriptor to epoll
 						&syscall.EpollEvent{
-							Events: syscall.EPOLLIN | syscall.EPOLLONESHOT | syscall.TCP_NODELAY,
+							Events: syscall.EPOLLIN | syscall.EPOLLONESHOT,
 							Fd:     int32(nfd),
 						})
+					syscall.SetsockoptInt(nfd, syscall.IPPROTO_TCP, syscall.TCP_NODELAY, 1)
 				} else {
 					jobs[efd%numworkers] <- efd
 				}

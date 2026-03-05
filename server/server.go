@@ -33,6 +33,7 @@ var (
 	}
 )
 
+// new server instance
 func New() *Server {
 	return &Server{
 		R:      router.NewHTTPRouter(),
@@ -41,6 +42,7 @@ func New() *Server {
 	}
 }
 
+// run server on addr:port
 func (srv *Server) Run(addr [4]byte, port int) error {
 	parseFunc := func(s *engine.Session) (bool, error) {
 		c := ctxPool.Get().(*router.Context)

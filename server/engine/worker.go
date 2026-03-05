@@ -30,7 +30,7 @@ var (
 
 // handle RawRequest // fd -> parser -> router -> handler -> write & close
 func workerEpoll(epollfd int, jobs chan int, Sessions []atomic.Pointer[Session], cb handleConn) {
-	tw := NewWheel()
+	tw := NewWheel(20)
 
 	for fd := range jobs {
 		if fd == -1 {

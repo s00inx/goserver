@@ -82,7 +82,7 @@ func BenchmarkFullStackReal(b *testing.B) {
 }
 
 func BenchmarkTimerWheelUpdate(b *testing.B) {
-	tw := engine.NewWheel()
+	tw := engine.NewWheel(15)
 
 	numSessions := 1000
 	sessions := make([]*engine.Session, numSessions)
@@ -102,7 +102,7 @@ func BenchmarkTimerWheelUpdate(b *testing.B) {
 }
 
 func BenchmarkTimerWheelParallel(b *testing.B) {
-	tw := engine.NewWheel()
+	tw := engine.NewWheel(15)
 	b.RunParallel(func(pb *testing.PB) {
 		s := &engine.Session{Fd: 1} // Имитация сессии на поток
 		for pb.Next() {

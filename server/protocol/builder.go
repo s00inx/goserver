@@ -41,9 +41,12 @@ var statusTable = [505][]byte{
 
 // for fast access
 var (
-	proto = []byte("HTTP/1.1 ")
-	crlf  = []byte("\r\n")
-	colon = []byte(": ")
+	proto   = []byte("HTTP/1.1 ")
+	crlf    = []byte("\r\n")
+	colon   = []byte(": ")
+	clhdr   = []byte("Content-Length: ")
+	hserver = []byte("Server: goserver\r\n")
+	hdate   = []byte("Date: ")
 )
 
 // helper func to copy int to pre-allocated buf with zero-alloc, buf is dst[n:]
@@ -78,14 +81,27 @@ func BuildResp(code int, headers []engine.Header, body, dst []byte) int {
 	n := copy(dst, proto)
 	n += copy(dst[n:], st)
 	n += copy(dst[n:], crlf)
-	n += copy(dst[n:], []byte("Content-Length: "))
 
+	// i calculate content len here bc i am forced to convert it to []byte anyway
+	n += copy(dst[n:], clhdr)
 	var tmp [64]byte
 	nn := IntToBuf(tmp[:], uint(len(body)))
-
 	n += copy(dst[n:], tmp[:nn])
 	n += copy(dst[n:], crlf)
+	//
 
+	n += copy(dst[n:], hserver)
+
+	// load atomic.Pointer
+	cdate := engine.CurrentDate.Load()
+	if cdate != nil {
+		n += copy(dst[n:], hdate)
+		n += copy(dst[n:], *cdate)
+		n += copy(dst[n:], crlf)
+	}
+
+	// and remaining user headers
+	// user should avoid adding Content-Length and Server headers
 	for _, h := range headers {
 		n += copy(dst[n:], h.Key)
 		n += copy(dst[n:], colon)

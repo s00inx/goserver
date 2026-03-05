@@ -17,7 +17,7 @@ func (e *Engine) StopServer(stdout *io.Writer) {
 	}
 
 	syscall.Close(e.lsfd)
-	out.Write([]byte("closing listening socket...\n"))
+	out.Write([]byte("\nclosing listening socket...\n"))
 
 	for _, ch := range e.jobsarr {
 		close(ch)

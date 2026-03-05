@@ -8,15 +8,19 @@ import (
 // timer wheel for request timeout,
 // mask should be timeout - 1 (no alignment bc struct created only at start)
 type TimerWheel struct {
-	slots  [1 << 9]*Session // (NOTE: power of 2 for using bitmask over %)
+	TTL int
+
+	slots  [1 << 8]*Session // (NOTE: power of 2 for using bitmask over %)
 	cursor int              // cur wheel slot
 	mask   int
 }
 
-func NewWheel() *TimerWheel {
+// init new wheel, better use 10-20 sec for ttl
+func NewWheel(ttl int) *TimerWheel {
 	return &TimerWheel{
-		slots: [1 << 9]*Session{},
-		mask:  1<<9 - 1,
+		slots: [1 << 8]*Session{},
+		mask:  1<<8 - 1,
+		TTL:   ttl,
 	}
 }
 
@@ -34,7 +38,7 @@ func (tw *TimerWheel) Update(s *Session) {
 		s.tnext.tprev = s.tprev
 	}
 
-	ns := (tw.cursor + 40) & tw.mask
+	ns := (tw.cursor + tw.TTL) & tw.mask
 	s.tnext = tw.slots[ns]
 	s.tprev = nil
 	s.slot = ns
