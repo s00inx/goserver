@@ -17,6 +17,10 @@ func main() {
 	}
 
 	s.R.Get("/h", handler)
+
+	hg := router.NewGroup("/h", s.R)
+	hg.Get("/1", handler)
+
 	go func() {
 		s.Run([4]byte{127, 0, 0, 1}, 8080)
 	}()

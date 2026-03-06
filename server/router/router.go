@@ -144,6 +144,14 @@ type RouteGroup struct {
 	router      *HTTPRouter
 }
 
+func NewGroup(prefix string, router *HTTPRouter) *RouteGroup {
+	return &RouteGroup{
+		prefix:      prefix,
+		middlewares: []Handler{Recovery},
+		router:      router,
+	}
+}
+
 // new Route Group with Prefix (NOTE: we alloc when append but it doesn't affect runtime 0 alloc performance)
 func (g *RouteGroup) Group(prefix string) *RouteGroup {
 	return &RouteGroup{

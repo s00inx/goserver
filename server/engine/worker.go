@@ -81,12 +81,14 @@ func workerEpoll(epollfd int, jobs chan int, Sessions []atomic.Pointer[Session],
 				s.Reset()
 				sessionPool.Put(s.raw)
 				syscall.Close(fd)
+				atomic.AddInt64(&Stats.ActiveConn, -1)
 				continue
 			}
 		}
 
 		if n > 0 {
 			tw.Update(s)
+			atomic.AddUint64(&Stats.BytesSent, uint64(n))
 
 			s.Offset += uint32(n)
 			shouldRelease, _ := cb(s)
