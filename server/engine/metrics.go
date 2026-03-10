@@ -43,7 +43,7 @@ func (e *Engine) PrintStats() {
 	pos = writeUint(statsBuf[:], pos, atomic.LoadUint64(&Stats.LatencyB[4]), 6)
 	pos += copy(statsBuf[pos:], "\n")
 
-	pos += copy(statsBuf[pos:], "[STATUS ] 2xx: ")
+	pos += copy(statsBuf[pos:], "[STATUS] 2xx: ")
 	pos = writeUint(statsBuf[:], pos, r2xx, 7)
 	pos += copy(statsBuf[pos:], " | 4xx/5xx: ")
 	pos = writeUint(statsBuf[:], pos, r4xx+r5xx, 6)
