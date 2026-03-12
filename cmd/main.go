@@ -6,19 +6,18 @@ import (
 	"syscall"
 
 	srv "github.com/s00inx/goserver/server"
-	"github.com/s00inx/goserver/server/router"
 )
 
 func main() {
 	s := srv.New()
 
-	handler := func(c *router.Context) {
+	handler := func(c *srv.Context) {
 		c.SendDirect(200, []byte("hello world!"))
 	}
 
 	s.R.Get("/h", handler)
 
-	hg := router.NewGroup("/h", s.R)
+	hg := s.Group("/h")
 	hg.Get("/1", handler)
 
 	go func() {

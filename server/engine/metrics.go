@@ -30,7 +30,6 @@ func (e *Engine) PrintStats() {
 	r5xx := atomic.LoadUint64(&Stats.Resp5xx)
 
 	pos := 0
-
 	pos += copy(statsBuf[pos:], "\r[GENERAL]")
 	pos += copy(statsBuf[pos:], " Active: ")
 	pos = writeUint(statsBuf[:], pos, uint64(active), 6)

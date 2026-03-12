@@ -219,14 +219,18 @@ func (c *Context) Next() {
 	c.collectCtxMetrics(dur)
 }
 
+// send error directly
 func (c *Context) Send404() {
+	atomic.AddUint64(&engine.Stats.Resp4xx, 1)
 	engine.Write404(c.Session)
 }
 
 func (c *Context) Send500() {
+	atomic.AddUint64(&engine.Stats.Resp5xx, 1)
 	engine.Write500(c.Session)
 }
 
+// collect metrics
 func (c *Context) collectCtxMetrics(dur time.Duration) {
 	var b int
 	ns := dur.Nanoseconds()

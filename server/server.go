@@ -9,31 +9,22 @@ import (
 	"github.com/s00inx/goserver/server/router"
 )
 
-// TEMPORARY
-type Context struct {
-	router.Context
-}
-
-type Handler struct {
-	router.Handler
-}
+// Используем алиасы типов (Type Aliasing), чтобы main не импортировал router
+type Context = router.Context
+type Handler = router.Handler
 
 type Server struct {
-	R *router.HTTPRouter
-
+	R      *router.HTTPRouter
 	parser protocol.HTTPParser
 	engine engine.Engine
 }
 
-var (
-	ctxPool = sync.Pool{
-		New: func() any {
-			return &router.Context{}
-		},
-	}
-)
+var ctxPool = sync.Pool{
+	New: func() any {
+		return &router.Context{}
+	},
+}
 
-// new server instance
 func New() *Server {
 	return &Server{
 		R:      router.NewHTTPRouter(),
@@ -42,17 +33,22 @@ func New() *Server {
 	}
 }
 
-// run server on addr:port
+func (srv *Server) Get(path string, h Handler)  { srv.R.Get(path, h) }
+func (srv *Server) Post(path string, h Handler) { srv.R.Post(path, h) }
+func (srv *Server) Use(mw Handler)              { srv.R.Use(mw) }
+func (srv *Server) Group(prefix string) *Group {
+	return &Group{rg: srv.R.Group(prefix)}
+}
+
 func (srv *Server) Run(addr [4]byte, port int) error {
 	parseFunc := func(s *engine.Session) (bool, error) {
-		c := ctxPool.Get().(*router.Context)
-
 		onReq := func(s *engine.Session, buf []byte) {
-			h := srv.R.Serve(s)
-			c.Reset(s, h)
+			handlers := srv.R.Serve(s)
+			c := ctxPool.Get().(*router.Context)
+			c.Reset(s, handlers)
 
-			if h != nil {
-				h[0](c)
+			if handlers != nil {
+				c.Next()
 			} else {
 				c.Send404()
 			}
@@ -64,7 +60,14 @@ func (srv *Server) Run(addr [4]byte, port int) error {
 	return srv.engine.StartEpoll(addr, port, parseFunc)
 }
 
-// basically there is alloc (interface conversion), but since this is one-time operation it won't affect runtime
 func (srv *Server) Stop(out *io.Writer) {
 	srv.engine.StopServer(out)
 }
+
+type Group struct {
+	rg *router.RouteGroup
+}
+
+func (g *Group) Get(path string, h Handler)  { g.rg.Get(path, h) }
+func (g *Group) Post(path string, h Handler) { g.rg.Post(path, h) }
+func (g *Group) Group(prefix string) *Group  { return &Group{rg: g.rg.Group(prefix)} }
