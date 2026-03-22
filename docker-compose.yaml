@@ -1,0 +1,21 @@
+services:
+  goserver:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: goserver
+    network_mode: "host" 
+    restart: always
+
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 100000
+        hard: 100000
+
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          cpus: '18'
