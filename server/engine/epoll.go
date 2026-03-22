@@ -17,7 +17,7 @@ type Engine struct {
 }
 
 const (
-	backlog   = 128 // backlog for listening
+	backlog   = 256 // backlog for listening
 	maxEvents = 256
 )
 
@@ -83,7 +83,7 @@ func (e *Engine) StartEpoll(addr [4]byte, port int, cb handleConn) error {
 				jobs[i] <- -1
 			}
 
-			e.PrintStats()
+			// e.PrintStats()
 		default:
 			// number of events to accept
 			n, err := syscall.EpollWait(epollfd, events, -1)
