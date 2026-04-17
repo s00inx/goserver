@@ -4,8 +4,6 @@ package router
 import (
 	"bytes"
 	"io"
-	"sync/atomic"
-	"time"
 	"unsafe"
 
 	"github.com/s00inx/goserver/server/engine"
@@ -208,53 +206,17 @@ func (c *Context) SendWithBody(body []byte) {
 
 // Middleware functional
 func (c *Context) Next() {
-	st := time.Now()
-
 	c.chindex++
 	if int(c.chindex) < len(c.handlers) {
 		c.handlers[c.chindex](c)
 	}
-
-	dur := time.Since(st)
-	c.collectCtxMetrics(dur)
 }
 
 // send error directly
 func (c *Context) Send404() {
-	atomic.AddUint64(&engine.Stats.Resp4xx, 1)
 	engine.Write404(c.Session)
 }
 
 func (c *Context) Send500() {
-	atomic.AddUint64(&engine.Stats.Resp5xx, 1)
 	engine.Write500(c.Session)
-}
-
-// collect metrics
-func (c *Context) collectCtxMetrics(dur time.Duration) {
-	var b int
-	ns := dur.Nanoseconds()
-	switch {
-	case ns < 100000:
-		b = 0
-	case ns < 500000:
-		b = 1
-	case ns < 5000000:
-		b = 2
-	case ns < 100000000:
-		b = 3
-	default:
-		b = 4
-	}
-
-	atomic.AddUint64(&engine.Stats.LatencyB[b], 1)
-
-	switch {
-	case c.code >= 200 && c.code < 300:
-		atomic.AddUint64(&engine.Stats.Resp2xx, 1)
-	case c.code >= 400 && c.code < 500:
-		atomic.AddUint64(&engine.Stats.Resp4xx, 1)
-	case c.code >= 500:
-		atomic.AddUint64(&engine.Stats.Resp5xx, 1)
-	}
 }

@@ -17,7 +17,7 @@ type Engine struct {
 }
 
 const (
-	backlog   = 256 // backlog for listening
+	backlog   = 128 // backlog for listening
 	maxEvents = 256
 )
 
@@ -83,12 +83,10 @@ func (e *Engine) StartEpoll(addr [4]byte, port int, cb handleConn) error {
 				jobs[i] <- -1
 			}
 
-			// e.PrintStats()
 		default:
 			// number of events to accept
 			n, err := syscall.EpollWait(epollfd, events, -1)
 			if err != nil {
-				atomic.AddUint64(&Stats.EpollErrors, 1)
 				continue
 			}
 
@@ -96,10 +94,7 @@ func (e *Engine) StartEpoll(addr [4]byte, port int, cb handleConn) error {
 				efd := int(events[i].Fd) // current event descriptor
 
 				if efd == fd {
-					nfd, _, err := syscall.Accept(fd) // new descriptor for new client
-					if err != nil {
-						atomic.AddUint64(&Stats.EpollErrors, 1)
-					}
+					nfd, _, _ := syscall.Accept(fd) // new descriptor for new client
 					syscall.SetNonblock(nfd, true)
 
 					syscall.EpollCtl(epollfd, syscall.EPOLL_CTL_ADD, nfd, // adding new descriptor to epoll
@@ -108,7 +103,6 @@ func (e *Engine) StartEpoll(addr [4]byte, port int, cb handleConn) error {
 							Fd:     int32(nfd),
 						})
 					syscall.SetsockoptInt(nfd, syscall.IPPROTO_TCP, syscall.TCP_NODELAY, 1)
-					atomic.AddInt64(&Stats.ActiveConn, 1)
 				} else {
 					jobs[efd%numworkers] <- efd
 				}
